@@ -13,7 +13,7 @@ export interface Board {
   id: string;
   workspaceId: string;
   name: string;
-  createdBy: string;
+  createdBy?: string;
   createdAt: string;
 }
 
@@ -34,7 +34,7 @@ export interface Card {
   priority: Priority;
   status: CardStatus;
   estimatedTime?: number;
-  createdBy: string;
+  createdBy?: string;
   createdAt: string;
   labels: Label[];
   assignees: string[];

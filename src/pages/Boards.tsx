@@ -63,7 +63,6 @@ export default function Boards() {
             await addBoard({
                 name: newBoardName,
                 workspaceId: activeWorkspaceId || workspaces[0]?.id || '',
-                createdBy: user?.uid || ''
             });
         }
 

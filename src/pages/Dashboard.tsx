@@ -14,10 +14,10 @@ const priorityDot: Record<string, string> = {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { t, language, timezone } = useSettings();
+  const { t } = useSettings();
   const { cards, boards } = useProject();
 
-  const myTasks = cards.filter(c => c.assignees.includes(user?.uid || ''));
+  const myTasks = cards.filter(c => c.assignees.includes(user?.id || ''));
   const todayTasks = myTasks.filter(c => c.dueDate && new Date(c.dueDate).toDateString() === new Date().toDateString());
   const overdueTasks = myTasks.filter(c => c.dueDate && new Date(c.dueDate) < new Date() && c.status !== 'done');
   const inProgress = myTasks.filter(c => c.status === 'in-progress');
@@ -27,7 +27,7 @@ export default function Dashboard() {
     <div className="p-6 max-w-6xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-foreground">{t('welcome_back')}, {user?.displayName || 'User'} 👋</h1>
+        <h1 className="text-2xl font-bold text-foreground">{t('welcome_back')}, {user?.user_metadata?.name || user?.email?.split('@')[0] || 'User'} 👋</h1>
         <p className="text-muted-foreground mt-1">{t('overview')}</p>
       </div>
 

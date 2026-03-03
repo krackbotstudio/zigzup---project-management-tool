@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Kanban, Calendar, Bell, Settings, ChevronDown,
-  Plus, Search, Zap, Users, FolderKanban, Sparkles, LogOut, Video
+  Plus, Search, Zap, FolderKanban, Sparkles, LogOut, Video, Trash2, Crown, Edit2, Check, X
 } from 'lucide-react';
 import { useProject } from '@/context/ProjectContext';
 import { useAuth } from '@/context/AuthContext';
@@ -17,6 +17,16 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
@@ -30,24 +40,30 @@ const navItems = [
 
 export function AppSidebar() {
   const location = useLocation();
-  const { boards, workspaces, activeWorkspaceId, setActiveWorkspaceId, members, inviteUser, addWorkspace } = useProject();
+  const { boards, workspaces, activeWorkspaceId, setActiveWorkspaceId, members, inviteUser, addWorkspace, updateWorkspace, deleteWorkspace } = useProject();
   const { user, logout } = useAuth();
   const { t } = useSettings();
   const [wsOpen, setWsOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
   const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
 
   const [newWsName, setNewWsName] = useState('');
   const [isCreateWsOpen, setIsCreateWsOpen] = useState(false);
+  const [deletingWsId, setDeletingWsId] = useState<string | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [renamingWsId, setRenamingWsId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0] || { id: '', name: 'Workspace' };
 
   const handleInvite = async () => {
     if (!inviteEmail) return;
     try {
-      await inviteUser(inviteEmail, 'member');
+      await inviteUser(inviteEmail, inviteRole);
       toast.success(`Invite sent to ${inviteEmail}`);
       setInviteEmail('');
+      setInviteRole('member');
       setIsInviteDialogOpen(false);
     } catch (error) {
       toast.error('Failed to send invite');
@@ -55,6 +71,7 @@ export function AppSidebar() {
   };
 
   return (
+    <>
     <aside className="flex flex-col w-[260px] min-h-screen bg-sidebar border-r border-sidebar-border">
       {/* Workspace Switcher */}
       <div className="p-3 border-b border-sidebar-border">
@@ -72,23 +89,85 @@ export function AppSidebar() {
         </button>
         {wsOpen && (
           <div className="mt-1 animate-fade-in">
-            {workspaces.map(ws => (
-              <button
-                key={ws.id}
-                onClick={() => { setActiveWorkspaceId(ws.id); setWsOpen(false); }}
-                className={cn(
-                  "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm transition-colors text-left",
-                  ws.id === activeWorkspace.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                )}
-              >
-                <div className="flex items-center justify-center w-5 h-5 rounded bg-primary/20 text-primary text-[10px] font-bold">
-                  {ws.name.charAt(0)}
+            {workspaces.map(ws => {
+              const isWsOwner = ws.ownerId === user?.id;
+              const isRenaming = renamingWsId === ws.id;
+              return (
+                <div key={ws.id} className="flex items-center group/ws">
+                  {isRenaming ? (
+                    <div className="flex items-center gap-1 flex-1 px-2 py-1">
+                      <Input
+                        autoFocus
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={async e => {
+                          if (e.key === 'Enter') {
+                            if (renameValue.trim()) await updateWorkspace(ws.id, { name: renameValue.trim() });
+                            setRenamingWsId(null);
+                          } else if (e.key === 'Escape') {
+                            setRenamingWsId(null);
+                          }
+                        }}
+                        className="h-7 text-xs px-2 bg-sidebar-accent/50 border-sidebar-border flex-1"
+                      />
+                      <button
+                        onClick={async () => {
+                          if (renameValue.trim()) await updateWorkspace(ws.id, { name: renameValue.trim() });
+                          setRenamingWsId(null);
+                        }}
+                        className="p-1 rounded text-success hover:bg-success/10 transition-colors"
+                        title="Save"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setRenamingWsId(null)}
+                        className="p-1 rounded text-sidebar-foreground/50 hover:bg-sidebar-accent transition-colors"
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => { setActiveWorkspaceId(ws.id); setWsOpen(false); }}
+                        className={cn(
+                          "flex items-center gap-2 flex-1 px-2 py-1.5 rounded-md text-sm transition-colors text-left",
+                          ws.id === activeWorkspace.id
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                            : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+                        )}
+                      >
+                        <div className="flex items-center justify-center w-5 h-5 rounded bg-primary/20 text-primary text-[10px] font-bold">
+                          {ws.name.charAt(0)}
+                        </div>
+                        <span className="flex-1 truncate">{ws.name}</span>
+                        {isWsOwner && <Crown className="w-3 h-3 text-amber-400 shrink-0" />}
+                      </button>
+                      {isWsOwner && (
+                        <div className="opacity-0 group-hover/ws:opacity-100 flex items-center gap-0.5 mr-1 transition-all">
+                          <button
+                            onClick={() => { setRenamingWsId(ws.id); setRenameValue(ws.name); }}
+                            className="p-1.5 rounded text-sidebar-foreground/50 hover:text-foreground hover:bg-sidebar-accent transition-all"
+                            title="Rename workspace"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => { setDeletingWsId(ws.id); setDeleteConfirmName(''); }}
+                            className="p-1.5 rounded text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all"
+                            title="Delete workspace"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-                {ws.name}
-              </button>
-            ))}
+              );
+            })}
 
             <Dialog open={isCreateWsOpen} onOpenChange={setIsCreateWsOpen}>
               <DialogTrigger asChild>
@@ -259,7 +338,11 @@ export function AppSidebar() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Role</label>
-                  <select className="w-full h-10 px-3 rounded-md bg-sidebar-accent/50 border border-sidebar-border text-sm">
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="w-full h-10 px-3 rounded-md bg-sidebar-accent/50 border border-sidebar-border text-sm"
+                  >
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
                     <option value="viewer">Viewer</option>
@@ -274,7 +357,7 @@ export function AppSidebar() {
           </Dialog>
         </div>
         <div className="space-y-1 mx-2">
-          {members.slice(0, 5).map(member => (
+          {members.filter(m => m.workspaceId === activeWorkspaceId).slice(0, 5).map(member => (
             <div key={member.id} className="flex items-center gap-2 py-1 px-1 group">
               <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-[10px] font-bold text-primary shrink-0 overflow-hidden">
                 {member.avatar ? (
@@ -289,9 +372,9 @@ export function AppSidebar() {
               )}
             </div>
           ))}
-          {members.length > 5 && (
+          {members.filter(m => m.workspaceId === activeWorkspaceId).length > 5 && (
             <button className="text-[10px] text-primary hover:underline px-1 py-1">
-              + {members.length - 5} more
+              + {members.filter(m => m.workspaceId === activeWorkspaceId).length - 5} more
             </button>
           )}
         </div>
@@ -304,10 +387,10 @@ export function AppSidebar() {
           className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-sidebar-accent transition-all group"
         >
           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-black group-hover:bg-primary group-hover:text-primary-foreground transition-all border border-primary/20">
-            {user?.displayName?.charAt(0) || user?.email?.charAt(0) || 'U'}
+            {(user?.user_metadata?.name || user?.email)?.charAt(0)?.toUpperCase() || 'U'}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-xs font-bold text-sidebar-accent-foreground truncate">{user?.displayName || 'User'}</div>
+            <div className="text-xs font-bold text-sidebar-accent-foreground truncate">{user?.user_metadata?.name || user?.email?.split('@')[0] || 'User'}</div>
             <div className="text-[10px] text-sidebar-foreground/70 truncate">{user?.email}</div>
           </div>
         </Link>
@@ -322,5 +405,52 @@ export function AppSidebar() {
         </Button>
       </div>
     </aside>
+
+    {/* Delete Workspace Confirmation */}
+    <AlertDialog open={!!deletingWsId} onOpenChange={(open) => { if (!open) { setDeletingWsId(null); setDeleteConfirmName(''); } }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-destructive">Delete Workspace?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3">
+              <p>
+                This will permanently delete{' '}
+                <span className="font-bold text-foreground">"{workspaces.find(w => w.id === deletingWsId)?.name}"</span>{' '}
+                and all its boards, lists, and cards. This action cannot be undone.
+              </p>
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium text-foreground">
+                  Type the workspace name to confirm:
+                </p>
+                <Input
+                  placeholder={workspaces.find(w => w.id === deletingWsId)?.name || ''}
+                  value={deleteConfirmName}
+                  onChange={e => setDeleteConfirmName(e.target.value)}
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => { setDeletingWsId(null); setDeleteConfirmName(''); }}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive hover:bg-destructive/90 text-destructive-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={deleteConfirmName !== workspaces.find(w => w.id === deletingWsId)?.name}
+            onClick={async () => {
+              if (!deletingWsId) return;
+              await deleteWorkspace(deletingWsId);
+              setDeletingWsId(null);
+              setDeleteConfirmName('');
+              setWsOpen(false);
+              toast.success('Workspace deleted');
+            }}
+          >
+            Delete Workspace
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

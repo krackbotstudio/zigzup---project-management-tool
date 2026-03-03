@@ -6,115 +6,134 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 230 60% 11%;
+    /* ── Light mode ── */
+    --background:        0 0% 100%;
+    --foreground:        222 47% 11%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 230 60% 11%;
+    --card:              0 0% 100%;
+    --card-foreground:   222 47% 11%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 230 60% 11%;
+    --popover:           0 0% 100%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 351 60% 50%;
+    /* Indigo primary — professional, high-contrast */
+    --primary:           243 75% 59%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 340 65% 30%;
-    --secondary-foreground: 0 0% 100%;
+    --secondary:         220 14% 96%;
+    --secondary-foreground: 222 47% 20%;
 
-    --muted: 220 15% 94%;
-    --muted-foreground: 220 10% 46%;
+    --muted:             220 14% 96%;
+    --muted-foreground:  220 9% 46%;
 
-    --accent: 11 80% 65%;
-    --accent-foreground: 0 0% 100%;
+    --accent:            220 14% 93%;
+    --accent-foreground: 222 47% 20%;
 
-    --destructive: 0 72% 51%;
+    --destructive:       0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 15% 90%;
-    --input: 220 15% 90%;
-    --ring: 351 60% 50%;
+    --border:            220 13% 91%;
+    --input:             220 13% 91%;
+    --ring:              243 75% 59%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 230 60% 11%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 351 60% 50%;
+    /* ── Sidebar — clean dark slate ── */
+    --sidebar-background:        222 47% 11%;
+    --sidebar-foreground:        220 13% 75%;
+    --sidebar-primary:           243 75% 65%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 340 65% 30%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 230 60% 15%;
-    --sidebar-ring: 351 60% 50%;
+    --sidebar-accent:            222 40% 17%;
+    --sidebar-accent-foreground: 0 0% 97%;
+    --sidebar-border:            222 40% 16%;
+    --sidebar-ring:              243 75% 59%;
 
-    /* Custom tokens */
-    --success: 152 60% 46%;
+    /* ── Semantic tokens ── */
+    --success:           142 71% 45%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
+    --warning:           38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --info: 210 72% 55%;
-    --info-foreground: 0 0% 100%;
+    --info:              199 89% 48%;
+    --info-foreground:   0 0% 100%;
 
-    --priority-critical: 351 60% 50%;
-    --priority-high: 11 80% 65%;
-    --priority-medium: 340 65% 30%;
-    --priority-low: 230 60% 30%;
+    /* ── Priority — distinct, semantic colors ── */
+    --priority-critical: 0 84% 60%;
+    --priority-high:     25 95% 53%;
+    --priority-medium:   43 96% 46%;
+    --priority-low:      199 89% 48%;
 
-    --kanban-column: 220 15% 96%;
-    --kanban-card: 0 0% 100%;
-    --kanban-card-hover: 220 15% 98%;
+    /* ── Kanban ── */
+    --kanban-column:     220 14% 96%;
+    --kanban-card:       0 0% 100%;
+    --kanban-card-hover: 220 14% 98%;
 
-    --gradient-brand: linear-gradient(135deg, hsl(351 60% 50%), hsl(11 80% 65%));
-    --gradient-sidebar: linear-gradient(180deg, hsl(230 60% 11%), hsl(230 60% 8%));
+    --gradient-brand: linear-gradient(135deg, hsl(243 75% 59%), hsl(262 83% 65%));
+    --gradient-sidebar: linear-gradient(180deg, hsl(222 47% 11%), hsl(222 47% 9%));
 
-    --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
-    --shadow-card-hover: 0 4px 12px -2px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
+    --shadow-card: 0 1px 3px 0 rgba(0,0,0,0.06), 0 1px 2px -1px rgba(0,0,0,0.06);
+    --shadow-card-hover: 0 4px 12px -2px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.06);
+    --shadow-lg: 0 10px 30px -10px rgba(0,0,0,0.15);
   }
 
   .dark {
-    --background: 0 0% 8%;
-    --foreground: 0 0% 93%;
+    /* ── Dark mode — dark slate with indigo accents ── */
+    --background:        222 47% 6%;
+    --foreground:        210 40% 92%;
 
-    --card: 0 0% 11%;
-    --card-foreground: 0 0% 93%;
+    --card:              222 47% 9%;
+    --card-foreground:   210 40% 92%;
 
-    --popover: 0 0% 11%;
-    --popover-foreground: 0 0% 93%;
+    --popover:           222 47% 9%;
+    --popover-foreground: 210 40% 92%;
 
-    --primary: 351 60% 50%;
+    --primary:           243 75% 65%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 340 65% 30%;
-    --secondary-foreground: 0 0% 100%;
+    --secondary:         222 40% 14%;
+    --secondary-foreground: 210 40% 85%;
 
-    --muted: 0 0% 16%;
-    --muted-foreground: 0 0% 58%;
+    --muted:             222 40% 13%;
+    --muted-foreground:  215 16% 55%;
 
-    --accent: 11 80% 65%;
-    --accent-foreground: 0 0% 100%;
+    --accent:            222 40% 15%;
+    --accent-foreground: 210 40% 92%;
 
-    --destructive: 0 62% 40%;
+    --destructive:       0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 19%;
-    --input: 0 0% 19%;
-    --ring: 351 60% 50%;
+    --border:            222 40% 14%;
+    --input:             222 40% 14%;
+    --ring:              243 75% 65%;
 
-    --sidebar-background: 0 0% 5%;
-    --sidebar-foreground: 0 0% 83%;
-    --sidebar-primary: 351 60% 50%;
+    /* ── Sidebar — slightly lighter dark slate than background ── */
+    --sidebar-background:        222 47% 5%;
+    --sidebar-foreground:        220 13% 65%;
+    --sidebar-primary:           243 75% 65%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 340 65% 30%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 0 0% 12%;
-    --sidebar-ring: 351 60% 50%;
+    --sidebar-accent:            222 40% 12%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border:            222 40% 10%;
+    --sidebar-ring:              243 75% 65%;
 
-    --kanban-column: 0 0% 12%;
-    --kanban-card: 0 0% 15%;
-    --kanban-card-hover: 0 0% 18%;
+    /* ── Semantic tokens (dark — brighter for visibility) ── */
+    --success:           142 71% 52%;
+    --warning:           38 92% 58%;
+    --info:              199 89% 55%;
 
-    --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.5);
-    --shadow-card-hover: 0 4px 12px -2px rgba(0, 0, 0, 0.6);
-    --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
+    /* ── Priority (dark — higher lightness so they read on dark cards) ── */
+    --priority-critical: 0 90% 65%;
+    --priority-high:     25 95% 62%;
+    --priority-medium:   43 96% 58%;
+    --priority-low:      199 89% 58%;
+
+    /* ── Kanban (dark) ── */
+    --kanban-column:     222 40% 12%;
+    --kanban-card:       222 47% 9%;
+    --kanban-card-hover: 222 40% 13%;
+
+    --shadow-card: 0 1px 3px 0 rgba(0,0,0,0.4);
+    --shadow-card-hover: 0 4px 12px -2px rgba(0,0,0,0.5);
+    --shadow-lg: 0 10px 30px -10px rgba(0,0,0,0.6);
   }
 }
 

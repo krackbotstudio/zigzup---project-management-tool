@@ -9,6 +9,7 @@ import { useProject } from '@/context/ProjectContext';
 import { useAuth } from '@/context/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,17 +48,21 @@ export function KanbanColumn({ list, cards, onCardClick }: KanbanColumnProps) {
 
   const handleAddCard = async () => {
     if (!newCardTitle.trim()) return;
-    await addCard({
-      listId: list.id,
-      title: newCardTitle,
-      priority: 'medium',
-      status: 'todo',
-      createdBy: user?.uid || '',
-      labels: [],
-      assignees: [],
-    });
-    setNewCardTitle('');
-    setIsAdding(false);
+    try {
+      await addCard({
+        listId: list.id,
+        title: newCardTitle,
+        priority: 'medium',
+        status: 'todo',
+        createdBy: user?.id,
+        labels: [],
+        assignees: [],
+      });
+      setNewCardTitle('');
+      setIsAdding(false);
+    } catch (err: any) {
+      toast.error(`Failed to add card: ${err.message}`);
+    }
   };
 
   const handleRename = async () => {

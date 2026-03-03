@@ -25,7 +25,7 @@ import { useProject } from '@/context/ProjectContext';
 import { Language } from '@/i18n/translations';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import { Users, Trash2, ShieldCheck, Plus, Building2, AlertTriangle } from 'lucide-react';
+import { Users, Trash2, ShieldCheck, Plus, Building2, AlertTriangle, Crown } from 'lucide-react';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -36,14 +36,31 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 export default function Settings() {
     const { toast } = useToast();
     const { theme, setTheme, toggleTheme } = useTheme();
     const { language, setLanguage, timezone, setTimezone, boardViewMode, setBoardViewMode, t } = useSettings();
-    const { members, activeWorkspaceId, workspaces, updateWorkspace, deleteWorkspace } = useProject();
+    const { members, activeWorkspaceId, workspaces, updateWorkspace, deleteWorkspace, inviteUser } = useProject();
+    const { user } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
     const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId);
+    const isOwner = activeWorkspace?.ownerId === user?.id;
+
+    // Invite state
+    const [isInviteOpen, setIsInviteOpen] = useState(false);
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [inviteRole, setInviteRole] = useState('member');
+    const [isInviting, setIsInviting] = useState(false);
 
     // Workspace management state
     const [wsName, setWsName] = useState(activeWorkspace?.name || '');
@@ -385,43 +402,72 @@ export default function Settings() {
                                 <h3 className="font-bold flex items-center gap-2">
                                     <Users className="w-4 h-4 text-primary" /> Workspace Members
                                 </h3>
-                                <p className="text-sm text-muted-foreground mt-1">Manage who has access to the {activeWorkspace?.name || 'current'} workspace.</p>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Managing <span className="font-semibold text-foreground">{activeWorkspace?.name || 'current workspace'}</span> — {members.filter(m => m.workspaceId === activeWorkspaceId).length} member(s)
+                                </p>
                             </div>
-                            <Button size="sm" className="gap-2">
-                                <Plus className="w-4 h-4" /> Invite Member
-                            </Button>
+                            {isOwner && (
+                                <Button size="sm" className="gap-2" onClick={() => setIsInviteOpen(true)}>
+                                    <Plus className="w-4 h-4" /> Invite Member
+                                </Button>
+                            )}
                         </div>
 
                         <div className="divide-y divide-border">
-                            {members.map((member) => (
-                                <div key={member.id} className="p-6 flex items-center justify-between group hover:bg-muted/5 transition-colors">
-                                    <div className="flex items-center gap-4">
-                                        <Avatar className="w-10 h-10 border border-border">
-                                            <AvatarImage src={member.avatar} />
-                                            <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
-                                        </Avatar>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <h4 className="text-sm font-bold">{member.name}</h4>
-                                                {member.role === 'admin' && (
-                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider">Admin</span>
-                                                )}
+                            {members.filter(m => m.workspaceId === activeWorkspaceId).map((member) => {
+                                const isWorkspaceOwner = activeWorkspace?.ownerId === member.userId;
+                                const isSelf = member.userId === user?.id;
+                                return (
+                                    <div key={member.id} className="p-6 flex items-center justify-between group hover:bg-muted/5 transition-colors">
+                                        <div className="flex items-center gap-4">
+                                            <Avatar className="w-10 h-10 border border-border">
+                                                <AvatarImage src={member.avatar} />
+                                                <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="text-sm font-bold">{member.name}{isSelf && <span className="text-muted-foreground font-normal"> (you)</span>}</h4>
+                                                    {isWorkspaceOwner && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-bold uppercase tracking-wider flex items-center gap-1">
+                                                            <Crown className="w-2.5 h-2.5" /> Owner
+                                                        </span>
+                                                    )}
+                                                    {member.role === 'admin' && !isWorkspaceOwner && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider">Admin</span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-muted-foreground">{member.email}</p>
                                             </div>
-                                            <p className="text-xs text-muted-foreground">{member.email}</p>
                                         </div>
+                                        {isOwner && !isSelf && (
+                                            <div className="flex items-center gap-3">
+                                                <select
+                                                    defaultValue={member.role}
+                                                    className="bg-transparent text-xs border border-border rounded-md px-2 py-1 focus:ring-1 focus:ring-primary cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    <option value="member">Member</option>
+                                                    <option value="admin">Admin</option>
+                                                    <option value="viewer">Viewer</option>
+                                                </select>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                    onClick={async () => {
+                                                        await supabase.from('members').delete().eq('id', member.id);
+                                                        toast({ title: `${member.name} removed from workspace` });
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <select className="bg-transparent text-xs border-none focus:ring-0 cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
-                                            <option value="member">Member</option>
-                                            <option value="admin">Admin</option>
-                                            <option value="viewer">Viewer</option>
-                                        </select>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive">
-                                            <Trash2 className="w-4 h-4" />
-                                        </Button>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
+                            {members.filter(m => m.workspaceId === activeWorkspaceId).length === 0 && (
+                                <div className="p-8 text-center text-sm text-muted-foreground">No members found in this workspace.</div>
+                            )}
                         </div>
                     </div>
 
@@ -436,6 +482,59 @@ export default function Settings() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Invite Dialog */}
+                    <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
+                        <DialogContent className="max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>Invite to {activeWorkspace?.name}</DialogTitle>
+                            </DialogHeader>
+                            <div className="py-4 space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Email Address</label>
+                                    <Input
+                                        placeholder="colleague@example.com"
+                                        value={inviteEmail}
+                                        onChange={(e) => setInviteEmail(e.target.value)}
+                                        className="bg-muted/10"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Role</label>
+                                    <select
+                                        value={inviteRole}
+                                        onChange={(e) => setInviteRole(e.target.value)}
+                                        className="w-full h-10 px-3 rounded-md border border-border bg-muted/10 text-sm"
+                                    >
+                                        <option value="member">Member</option>
+                                        <option value="admin">Admin</option>
+                                        <option value="viewer">Viewer</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => { setIsInviteOpen(false); setInviteEmail(''); }}>Cancel</Button>
+                                <Button
+                                    disabled={!inviteEmail || isInviting}
+                                    onClick={async () => {
+                                        setIsInviting(true);
+                                        try {
+                                            await inviteUser(inviteEmail, inviteRole);
+                                            toast({ title: "Invite sent", description: `${inviteEmail} will be added when they log in.` });
+                                            setIsInviteOpen(false);
+                                            setInviteEmail('');
+                                        } catch {
+                                            toast({ title: "Failed to send invite", variant: "destructive" });
+                                        } finally {
+                                            setIsInviting(false);
+                                        }
+                                    }}
+                                >
+                                    {isInviting ? 'Sending...' : 'Send Invitation'}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </TabsContent>
 
                 <TabsContent value="workspace" className="space-y-6 animate-in slide-in-from-left-2 duration-300">

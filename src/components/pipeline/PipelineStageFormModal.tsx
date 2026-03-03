@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useProject } from '@/context/ProjectContext';
 import type { PipelineStage, KanbanList } from '@/types';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 const PRESET_COLORS = [
   '#6366f1', '#8b5cf6', '#0ea5e9', '#10b981',
@@ -66,6 +67,8 @@ export function PipelineStageFormModal({
         await addPipelineStage({ boardId, name: name.trim(), description, color, listIds: selectedListIds, position });
       }
       onClose();
+    } catch (err: any) {
+      toast.error(`Failed to save stage: ${err.message}`);
     } finally {
       setSaving(false);
     }

@@ -147,48 +147,80 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
                     }
                 }
 
-                // 3. Fetch related Data
+                // 3. Fetch boards and members
                 const [boardsRes, membersRes] = await Promise.all([
                     supabase.from('boards').select('*').in('workspace_id', memberWorkspaceIds),
                     supabase.from('members').select('*').in('workspace_id', memberWorkspaceIds)
                 ]);
 
+                const boardData = boardsRes.data || [];
+                const boardIds = boardData.map(b => b.id);
+
                 if (isSubscribed) {
-                    if (boardsRes.data) setBoards(boardsRes.data.map(toCamel) as Board[]);
+                    setBoards(boardData.map(toCamel) as Board[]);
                     if (membersRes.data) setMembers(membersRes.data.map(toCamel) as WorkspaceMember[]);
+                }
+
+                // 4. Fetch lists scoped to user's boards
+                const listsRes = boardIds.length > 0
+                    ? await supabase.from('lists').select('*').in('board_id', boardIds)
+                    : { data: [] };
+
+                const listData = listsRes.data || [];
+                const listIds = listData.map((l: any) => l.id);
+
+                if (isSubscribed) {
+                    setLists(listData.map(toCamel) as KanbanList[]);
+                }
+
+                // 5. Fetch cards scoped to user's lists, and pipelines + notifications in parallel
+                const [cardsRes, pipelinesRes, notificationsRes] = await Promise.all([
+                    listIds.length > 0
+                        ? supabase.from('cards').select('*').in('list_id', listIds)
+                        : Promise.resolve({ data: [] }),
+                    boardIds.length > 0
+                        ? supabase.from('pipeline_stages').select('*').in('board_id', boardIds)
+                        : Promise.resolve({ data: [] }),
+                    supabase.from('notifications').select('*').eq('user_id', user.id)
+                ]);
+
+                if (isSubscribed) {
+                    if (cardsRes.data) setCards(cardsRes.data.map(toCamel) as Card[]);
+                    if (pipelinesRes.data) setPipelineStages(pipelinesRes.data.map(toCamel) as PipelineStage[]);
+                    if (notificationsRes.data) setNotifications(notificationsRes.data.map(toCamel) as AppNotification[]);
                 }
             } else {
                 // Create default workspace if none exists
                 const newWsId = `ws-${Date.now()}`;
-                await supabase.from('workspaces').insert(toSnake({
+                const { error: wsError } = await supabase.from('workspaces').insert(toSnake({
                     id: newWsId,
                     name: 'My Workspace',
                     ownerId: user.id,
                     createdAt: new Date().toISOString()
                 }));
-                await supabase.from('members').insert(toSnake({
-                    workspaceId: newWsId,
-                    userId: user.id,
-                    email: user.email,
-                    name: user.user_metadata?.name || user.email?.split('@')[0] || 'Member',
-                    role: 'admin',
-                    avatar: user.user_metadata?.avatar_url
-                }));
-            }
 
-            // Fetch generic global data for the user
-            const [listsRes, cardsRes, pipelinesRes, notificationsRes] = await Promise.all([
-                supabase.from('lists').select('*'),
-                supabase.from('cards').select('*'),
-                supabase.from('pipeline_stages').select('*'),
-                supabase.from('notifications').select('*').eq('user_id', user.id)
-            ]);
+                if (!wsError) {
+                    await supabase.from('members').insert(toSnake({
+                        workspaceId: newWsId,
+                        userId: user.id,
+                        email: user.email,
+                        name: user.user_metadata?.name || user.email?.split('@')[0] || 'Member',
+                        role: 'admin',
+                        avatar: user.user_metadata?.avatar_url
+                    }));
 
-            if (isSubscribed) {
-                if (listsRes.data) setLists(listsRes.data.map(toCamel) as KanbanList[]);
-                if (cardsRes.data) setCards(cardsRes.data.map(toCamel) as Card[]);
-                if (pipelinesRes.data) setPipelineStages(pipelinesRes.data.map(toCamel) as PipelineStage[]);
-                if (notificationsRes.data) setNotifications(notificationsRes.data.map(toCamel) as AppNotification[]);
+                    if (isSubscribed) {
+                        setWorkspaces([{ id: newWsId, name: 'My Workspace', ownerId: user.id, createdAt: new Date().toISOString() } as Workspace]);
+                        setActiveWorkspaceId(newWsId);
+                        localStorage.setItem('zigzup-active-workspace', newWsId);
+                    }
+                }
+
+                // Fetch notifications even if no workspace
+                const { data: notificationsData } = await supabase.from('notifications').select('*').eq('user_id', user.id);
+                if (notificationsData && isSubscribed) {
+                    setNotifications(notificationsData.map(toCamel) as AppNotification[]);
+                }
             }
         };
 
@@ -209,7 +241,7 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
             isSubscribed = false;
             supabase.removeChannel(channel);
         };
-    }, [user, activeWorkspaceId]);
+    }, [user?.id]);
 
     // Workspace CRUD
     const addWorkspace = async (name: string) => {
@@ -258,10 +290,11 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
 
     // Pipeline CRUD
     const addPipelineStage = async (data: Omit<PipelineStage, 'id' | 'createdAt'>) => {
-        await supabase.from('pipeline_stages').insert(toSnake({
+        const { error } = await supabase.from('pipeline_stages').insert(toSnake({
             ...data,
             createdAt: new Date().toISOString(),
         }));
+        if (error) throw new Error(error.message);
     };
 
     const updatePipelineStage = async (id: string, updates: Partial<PipelineStage>) => {
@@ -281,8 +314,10 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
 
     // Board CRUD
     const addBoard = async (boardData: Omit<Board, 'id' | 'createdAt'>) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { createdBy: _omit, ...boardInsert } = boardData as any;
         const { data: docRef } = await supabase.from('boards').insert(toSnake({
-            ...boardData,
+            ...boardInsert,
             workspaceId: activeWorkspaceId || boardData.workspaceId,
             createdAt: new Date().toISOString(),
         })).select('id').single();
@@ -328,10 +363,13 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
 
     // Card CRUD
     const addCard = async (card: Omit<Card, 'id' | 'createdAt'>) => {
-        await supabase.from('cards').insert(toSnake({
-            ...card,
-            createdAt: new Date().toISOString(),
-        }));
+        // Strip undefined values so UUID/JSONB columns don't receive invalid types
+        const payload: any = { createdAt: new Date().toISOString() };
+        for (const [k, v] of Object.entries(card)) {
+            if (v !== undefined && v !== '') payload[k] = v;
+        }
+        const { error } = await supabase.from('cards').insert(toSnake(payload));
+        if (error) throw new Error(error.message);
     };
 
     const updateCard = async (id: string, updates: Partial<Card>) => {

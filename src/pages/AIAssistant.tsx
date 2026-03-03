@@ -13,9 +13,9 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { useProject } from '@/context/ProjectContext';
+import { callClaude, type ClaudeMessage } from '@/lib/claude';
 
 interface Message {
     id: string;
@@ -24,13 +24,60 @@ interface Message {
     timestamp: string;
 }
 
+function buildSystemPrompt(
+    boards: ReturnType<typeof useProject>['boards'],
+    cards: ReturnType<typeof useProject>['cards'],
+    lists: ReturnType<typeof useProject>['lists'],
+    members: ReturnType<typeof useProject>['members']
+): string {
+    const boardSummary = boards.map(b => `- Board: "${b.name}" (id: ${b.id})`).join('\n');
+    const listSummary = lists.map(l => `- List: "${l.name}" (id: ${l.id}) in board ${l.boardId}`).join('\n');
+    const cardSummary = cards.map(c =>
+        `- "${c.title}" | priority: ${c.priority} | status: ${c.status} | due: ${c.dueDate ?? 'none'} | list: ${c.listId}`
+    ).join('\n');
+    const memberSummary = members.map(m => `- ${m.name} (${m.email}, role: ${m.role})`).join('\n');
+
+    const overdueCnt = cards.filter(c => c.dueDate && new Date(c.dueDate) < new Date()).length;
+    const dueTodayCnt = cards.filter(c => {
+        if (!c.dueDate) return false;
+        const d = new Date(c.dueDate);
+        const today = new Date();
+        return d.toDateString() === today.toDateString();
+    }).length;
+
+    return `You are Zig, an intelligent AI project management assistant built into ZigZup.
+You help users understand their project status, prioritize work, identify blockers, and write project updates.
+Be concise, friendly, and data-driven. When you reference specific tasks or boards, use their real names.
+Format lists with bullet points. Keep paragraphs short.
+
+WORKSPACE SNAPSHOT:
+- Total boards: ${boards.length}
+- Total tasks: ${cards.length}
+- Overdue tasks: ${overdueCnt}
+- Due today: ${dueTodayCnt}
+- Members: ${members.length}
+- Today: ${new Date().toDateString()}
+
+BOARDS:
+${boardSummary || 'No boards yet.'}
+
+LISTS:
+${listSummary || 'No lists yet.'}
+
+TASKS:
+${cardSummary || 'No tasks yet.'}
+
+TEAM MEMBERS:
+${memberSummary || 'No members yet.'}`;
+}
+
 export default function AIAssistant() {
-    const { boards, cards } = useProject();
+    const { boards, cards, lists, members } = useProject();
     const [messages, setMessages] = useState<Message[]>([
         {
             id: '1',
             role: 'assistant',
-            content: "Hello! I'm your ZigZup AI Assistant. How can I help you manage your projects today? You can ask me to summarize a board, help you prioritize tasks, or even draft a project update.",
+            content: "Hello! I'm Zig, your ZigZup AI Assistant. I can see your boards, tasks, and team. Ask me to summarize progress, identify blockers, prioritize tasks, or draft a project update!",
             timestamp: new Date().toISOString()
         }
     ]);
@@ -44,13 +91,14 @@ export default function AIAssistant() {
         }
     }, [messages, isTyping]);
 
-    const handleSend = () => {
-        if (!input.trim()) return;
+    const handleSend = async (overrideInput?: string) => {
+        const text = (overrideInput ?? input).trim();
+        if (!text || isTyping) return;
 
         const userMsg: Message = {
             id: Date.now().toString(),
             role: 'user',
-            content: input,
+            content: text,
             timestamp: new Date().toISOString()
         };
 
@@ -58,40 +106,54 @@ export default function AIAssistant() {
         setInput('');
         setIsTyping(true);
 
-        // Mock AI response
-        setTimeout(() => {
-            let response = "I've analyzed your request. Based on the current board state, I recommend focusing on the tasks in 'In Progress' that are reaching their deadline soon.";
+        try {
+            const history: ClaudeMessage[] = messages
+                .filter(m => m.id !== '1')
+                .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+            history.push({ role: 'user', content: text });
 
-            if (input.toLowerCase().includes('summarize')) {
-                response = `You have ${boards.length} boards active. The most active one is "${boards[0]?.name || 'Project Beta'}" with ${cards.length} total tasks. Most tasks are currently in the Design and Implementation phases.`;
-            } else if (input.toLowerCase().includes('prioritize')) {
-                response = "I've reviewed your pending tasks. The 'Database migration' and 'User auth' tasks should be your top priority as they are blockers for the frontend team.";
-            }
+            const systemPrompt = buildSystemPrompt(boards, cards, lists, members);
+            const reply = await callClaude(history, systemPrompt);
 
-            const assistantMsg: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: response,
-                timestamp: new Date().toISOString()
-            };
-            setMessages(prev => [...prev, assistantMsg]);
+            setMessages(prev => [
+                ...prev,
+                {
+                    id: (Date.now() + 1).toString(),
+                    role: 'assistant',
+                    content: reply,
+                    timestamp: new Date().toISOString()
+                }
+            ]);
+        } catch (err: any) {
+            setMessages(prev => [
+                ...prev,
+                {
+                    id: (Date.now() + 1).toString(),
+                    role: 'assistant',
+                    content: err.message.includes('API key')
+                        ? '⚠️ API key not configured. Add VITE_ANTHROPIC_API_KEY to your .env file to enable AI responses.'
+                        : `⚠️ Error: ${err.message}`,
+                    timestamp: new Date().toISOString()
+                }
+            ]);
+        } finally {
             setIsTyping(false);
-        }, 1500);
+        }
     };
 
     const clearChat = () => {
         setMessages([{
             id: 'start',
             role: 'assistant',
-            content: "Chat cleared. How can I help you now?",
+            content: "Chat cleared. What would you like to know about your projects?",
             timestamp: new Date().toISOString()
         }]);
     };
 
     const quickActions = [
-        { icon: ListChecks, label: 'Summarize Board', query: 'Can you summarize the status of my primary board?' },
-        { icon: Zap, label: 'Suggest Next Task', query: 'What should I work on next based on my workload?' },
-        { icon: FileText, label: 'Draft Project Update', query: 'Help me draft a weekly update for the stakeholders.' },
+        { icon: ListChecks, label: 'Summarize Board', query: 'Can you give me a summary of the current status of all my boards and tasks?' },
+        { icon: Zap, label: 'Suggest Next Task', query: 'Based on priorities and due dates, what should I focus on next?' },
+        { icon: FileText, label: 'Draft Project Update', query: 'Help me draft a concise weekly project status update for stakeholders.' },
     ];
 
     return (
@@ -102,10 +164,10 @@ export default function AIAssistant() {
                         <Sparkles className="w-6 h-6 text-primary" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-bold">AI Assistant</h1>
+                        <h1 className="text-xl font-bold">Zig — AI Assistant</h1>
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                            Powered by ZigZup Intelligence
+                            Connected to your workspace ({cards.length} tasks, {boards.length} boards)
                         </p>
                     </div>
                 </div>
@@ -135,7 +197,7 @@ export default function AIAssistant() {
                                 {msg.role === 'user' ? <User className="w-4 h-4 text-primary" /> : <Bot className="w-4 h-4 text-indigo-500" />}
                             </div>
                             <div className={cn(
-                                "p-4 rounded-2xl text-sm leading-relaxed",
+                                "p-4 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap",
                                 msg.role === 'user'
                                     ? "bg-primary text-primary-foreground rounded-tr-none shadow-lg shadow-primary/20"
                                     : "bg-muted/40 text-foreground border border-border rounded-tl-none"
@@ -155,8 +217,9 @@ export default function AIAssistant() {
                             <div className="w-8 h-8 rounded-full bg-muted/30 border border-border flex items-center justify-center">
                                 <Bot className="w-4 h-4 text-indigo-500" />
                             </div>
-                            <div className="bg-muted/40 p-4 rounded-2xl rounded-tl-none border border-border">
+                            <div className="bg-muted/40 p-4 rounded-2xl rounded-tl-none border border-border flex items-center gap-2">
                                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                                <span className="text-xs text-muted-foreground">Zig is thinking…</span>
                             </div>
                         </div>
                     )}
@@ -168,8 +231,9 @@ export default function AIAssistant() {
                         {quickActions.map((action, i) => (
                             <button
                                 key={i}
-                                onClick={() => { setInput(action.query); handleSend(); }}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-bold bg-background border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-muted-foreground hover:text-primary active:scale-95"
+                                onClick={() => handleSend(action.query)}
+                                disabled={isTyping}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-bold bg-background border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-muted-foreground hover:text-primary active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <action.icon className="w-3.5 h-3.5" />
                                 {action.label}
@@ -179,11 +243,11 @@ export default function AIAssistant() {
 
                     <div className="relative group">
                         <Input
-                            placeholder="Ask anything about your projects..."
+                            placeholder="Ask Zig anything about your projects..."
                             className="pr-20 h-14 bg-background border-border shadow-sm rounded-2xl focus-visible:ring-primary/30 text-base"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                            onKeyDown={(e) => e.key === 'Enter' && !isTyping && handleSend()}
                         />
                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
                             <div className="hidden md:flex items-center gap-1 text-[10px] font-bold text-muted-foreground mr-2 border border-border px-1.5 py-0.5 rounded bg-muted/20">
@@ -192,7 +256,7 @@ export default function AIAssistant() {
                             <Button
                                 size="icon"
                                 className="h-10 w-10 rounded-xl shadow-lg shadow-primary/20 active:scale-90 transition-transform"
-                                onClick={handleSend}
+                                onClick={() => handleSend()}
                                 disabled={!input.trim() || isTyping}
                             >
                                 <Send className="w-4 h-4" />
@@ -200,7 +264,7 @@ export default function AIAssistant() {
                         </div>
                     </div>
                     <p className="text-[10px] text-center text-muted-foreground mt-4">
-                        AI can make mistakes. Consider checking important information.
+                        Zig has access to your current workspace data. Responses may not reflect real-time changes.
                     </p>
                 </div>
             </div>

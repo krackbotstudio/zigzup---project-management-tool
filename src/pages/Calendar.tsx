@@ -121,7 +121,7 @@ export default function Calendar() {
             listId: boardList.id,
             priority: 'medium',
             status: 'todo',
-            createdBy: user?.uid || '',
+            createdBy: user?.id,
             labels: [],
             assignees: [],
             dueDate: targetDate?.toISOString(),

@@ -104,7 +104,7 @@ export function PipelineView({ boardId }: PipelineViewProps) {
       ).length;
       const progressPercent = totalCards === 0 ? 0 : Math.round((doneCards / totalCards) * 100);
       const isCurrentUserHere = !!(user && stageCards.some(
-        c => c.assignees.includes(user.uid) && c.status !== 'done'
+        c => c.assignees.includes(user?.id ?? '') && c.status !== 'done'
       ));
       const status = deriveStageStatus(totalCards, doneCards, blockedCards, activeCards);
       return { ...stage, totalCards, doneCards, blockedCards, activeCards, progressPercent, status, isCurrentUserHere };
