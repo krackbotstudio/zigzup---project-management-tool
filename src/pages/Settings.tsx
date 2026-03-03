@@ -239,64 +239,15 @@ export default function Settings() {
                                 </div>
                                 <div>
                                     <h4 className="font-bold">Database Setup</h4>
-                                    <p className="text-sm text-muted-foreground">Initialize your Firestore collections with base mock data.</p>
+                                    <p className="text-sm text-muted-foreground">Initialize your Supabase collections with base mock data.</p>
                                 </div>
                             </div>
                             <Button
                                 variant="outline"
-                                className="gap-2 border-indigo-500/30 text-indigo-600 hover:bg-indigo-50"
-                                onClick={async () => {
-                                    setIsLoading(true);
-                                    try {
-                                        // Check if env vars are present
-                                        const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
-                                        if (!apiKey || apiKey.includes('your_actual_api_key')) {
-                                            throw new Error("Firebase configuration not detected. Please ensure your .env file is correctly filled and restart the dev server.");
-                                        }
-
-                                        const { db } = await import('@/lib/firebase');
-                                        const { collection, addDoc, getDocs, query, limit } = await import('firebase/firestore');
-                                        const { mockBoards, mockLists, mockCards, mockNotifications } = await import('@/data/mock');
-
-                                        const collections = [
-                                            { name: 'boards', data: mockBoards },
-                                            { name: 'lists', data: mockLists },
-                                            { name: 'cards', data: mockCards },
-                                            { name: 'notifications', data: mockNotifications }
-                                        ];
-
-                                        let totalSeeded = 0;
-                                        for (const col of collections) {
-                                            const snapshot = await getDocs(query(collection(db, col.name), limit(1)));
-                                            if (snapshot.empty) {
-                                                console.log(`Seeding ${col.name}...`);
-                                                for (const item of col.data) {
-                                                    const { id, ...data } = item as any;
-                                                    await addDoc(collection(db, col.name), data);
-                                                    totalSeeded++;
-                                                }
-                                            }
-                                        }
-
-                                        toast({
-                                            title: totalSeeded > 0 ? "Database Seeded" : "Database Ready",
-                                            description: totalSeeded > 0
-                                                ? `Successfully initialized collections with ${totalSeeded} items.`
-                                                : "Collections already contain data.",
-                                        });
-                                    } catch (error: any) {
-                                        console.error("Seeding failed:", error);
-                                        toast({
-                                            title: "Seeding Failed",
-                                            description: error.message || "Unknown error occurred. Check browser console.",
-                                            variant: "destructive"
-                                        });
-                                    } finally {
-                                        setIsLoading(false);
-                                    }
-                                }}
+                                className="gap-2 border-indigo-500/30 text-indigo-600"
+                                disabled={true}
                             >
-                                Seed Database
+                                Coming Soon
                             </Button>
                         </div>
                     </div>
