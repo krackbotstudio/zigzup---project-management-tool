@@ -32,8 +32,8 @@ build.txt
 build.log
 lint_*.txt
 
-# Firebase cache
-.firebase/
+# Vercel
+.vercel/
 
 # OS artifacts
 nul
