@@ -10,7 +10,11 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     hmr: {
       overlay: false,
+      clientPort: 443,
+      host: "virgulate-averi-overrigidly.ngrok-free.dev",
+      protocol: "wss",
     },
+    allowedHosts: true,
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

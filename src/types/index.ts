@@ -39,8 +39,25 @@ export interface Card {
   labels: Label[];
   assignees: string[];
   checklistItems?: ChecklistItem[];
+  links?: CardLink[];
+  comments?: CardComment[];
   commentsCount?: number;
   attachmentsCount?: number;
+}
+
+export interface CardLink {
+  id: string;
+  title: string;
+  url: string;
+  type: 'link' | 'embed';
+}
+
+export interface CardComment {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  createdAt: string;
 }
 
 export interface Label {
@@ -57,9 +74,61 @@ export interface ChecklistItem {
 
 export interface WorkspaceMember {
   id: string;
+  workspaceId: string;
   userId: string;
   name: string;
   email: string;
   avatar?: string;
   role: MemberRole;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+}
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'mention' | 'assignment' | 'deadline' | 'system';
+  createdAt: string;
+  isRead: boolean;
+  link?: string;
+}
+
+export interface Invitation {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  invitedBy: string;
+  invitedEmail: string;
+  role: MemberRole;
+  status: 'pending' | 'accepted' | 'declined';
+  createdAt: string;
+}
+
+export type StageStatus = 'not-started' | 'active' | 'blocked' | 'complete';
+
+export interface PipelineStage {
+  id: string;
+  boardId: string;
+  name: string;
+  description?: string;
+  color: string;
+  position: number;
+  listIds: string[];
+  createdAt: string;
+}
+
+export interface PipelineStageWithStats extends PipelineStage {
+  totalCards: number;
+  doneCards: number;
+  blockedCards: number;
+  activeCards: number;
+  progressPercent: number;
+  status: StageStatus;
+  isCurrentUserHere: boolean;
 }

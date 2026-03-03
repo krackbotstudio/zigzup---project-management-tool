@@ -1,8 +1,14 @@
-import type { Workspace, Board, KanbanList, Card, WorkspaceMember } from '@/types';
+import type { Workspace, Board, KanbanList, Card, WorkspaceMember, User, AppNotification } from '@/types';
 
 export const mockWorkspaces: Workspace[] = [
   { id: 'ws-1', name: 'ZigZup HQ', ownerId: 'u-1', createdAt: '2024-01-01' },
   { id: 'ws-2', name: 'Client Projects', ownerId: 'u-1', createdAt: '2024-02-01' },
+];
+
+export const mockUsers: User[] = [
+  { id: 'u-1', name: 'Alex Chen', email: 'alex@zigzup.com', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex' },
+  { id: 'u-2', name: 'Sara Kim', email: 'sara@zigzup.com', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sara' },
+  { id: 'u-3', name: 'Dev Patel', email: 'dev@zigzup.com', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Dev' },
 ];
 
 export const mockMembers: WorkspaceMember[] = [
@@ -29,7 +35,7 @@ export const mockCards: Card[] = [
   {
     id: 'c-1', listId: 'l-1', title: 'Design system tokens', description: 'Define all color, spacing, and typography tokens for the design system.',
     priority: 'high', status: 'todo', createdBy: 'u-1', createdAt: '2024-03-01',
-    labels: [{ id: 'lb-1', name: 'Design', color: 'hsl(174 72% 46%)' }],
+    labels: [{ id: 'lb-1', name: 'Design', color: 'hsl(250 84% 63%)' }],
     assignees: ['u-1'], dueDate: '2024-03-20', commentsCount: 3, attachmentsCount: 1,
     checklistItems: [
       { id: 'ci-1', content: 'Define color palette', isCompleted: true },
@@ -57,7 +63,7 @@ export const mockCards: Card[] = [
   {
     id: 'c-5', listId: 'l-3', title: 'Kanban drag-and-drop', description: 'Implement drag and drop for cards and lists using dnd-kit.',
     priority: 'high', status: 'in-progress', createdBy: 'u-1', createdAt: '2024-03-05',
-    labels: [{ id: 'lb-1', name: 'Design', color: 'hsl(174 72% 46%)' }, { id: 'lb-2', name: 'Feature', color: 'hsl(210 72% 55%)' }],
+    labels: [{ id: 'lb-1', name: 'Design', color: 'hsl(351 60% 50%)' }, { id: 'lb-2', name: 'Feature', color: 'hsl(210 72% 55%)' }],
     assignees: ['u-1', 'u-2'], dueDate: '2024-03-18', commentsCount: 2,
     checklistItems: [
       { id: 'ci-3', content: 'Card DnD', isCompleted: true },
@@ -89,4 +95,42 @@ export const mockCards: Card[] = [
     labels: [{ id: 'lb-3', name: 'Backend', color: 'hsl(25 95% 53%)' }],
     assignees: ['u-1', 'u-3'],
   },
+];
+
+export const mockNotifications: AppNotification[] = [
+  {
+    id: 'n-1',
+    title: 'New Mention',
+    message: 'Alex Chen mentioned you in "Design system tokens"',
+    type: 'mention',
+    createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 mins ago
+    isRead: false,
+    link: '/board/b-1'
+  },
+  {
+    id: 'n-2',
+    title: 'Task Assigned',
+    message: 'You have been assigned to "Implement auth flow"',
+    type: 'assignment',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
+    isRead: false,
+    link: '/board/b-1'
+  },
+  {
+    id: 'n-3',
+    title: 'Upcoming Deadline',
+    message: 'Task "User onboarding flow" is due in 24 hours',
+    type: 'deadline',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(), // 5 hours ago
+    isRead: true,
+    link: '/board/b-1'
+  },
+  {
+    id: 'n-4',
+    title: 'System Update',
+    message: 'ZigZup v2.1 is now live with enhanced AI features!',
+    type: 'system',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
+    isRead: true
+  }
 ];

@@ -1,6 +1,8 @@
 import { Calendar, CheckCircle2, Clock, AlertTriangle, TrendingUp, Sparkles, ArrowRight } from 'lucide-react';
-import { mockCards, mockBoards } from '@/data/mock';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
+import { useProject } from '@/context/ProjectContext';
+import { useSettings } from '@/context/SettingsContext';
 import { cn } from '@/lib/utils';
 
 const priorityDot: Record<string, string> = {
@@ -11,7 +13,11 @@ const priorityDot: Record<string, string> = {
 };
 
 export default function Dashboard() {
-  const myTasks = mockCards.filter(c => c.assignees.includes('u-1'));
+  const { user } = useAuth();
+  const { t, language, timezone } = useSettings();
+  const { cards, boards } = useProject();
+
+  const myTasks = cards.filter(c => c.assignees.includes(user?.uid || ''));
   const todayTasks = myTasks.filter(c => c.dueDate && new Date(c.dueDate).toDateString() === new Date().toDateString());
   const overdueTasks = myTasks.filter(c => c.dueDate && new Date(c.dueDate) < new Date() && c.status !== 'done');
   const inProgress = myTasks.filter(c => c.status === 'in-progress');
@@ -21,8 +27,8 @@ export default function Dashboard() {
     <div className="p-6 max-w-6xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-foreground">Good morning, Alex 👋</h1>
-        <p className="text-muted-foreground mt-1">Here's what's on your plate today.</p>
+        <h1 className="text-2xl font-bold text-foreground">{t('welcome_back')}, {user?.displayName || 'User'} 👋</h1>
+        <p className="text-muted-foreground mt-1">{t('overview')}</p>
       </div>
 
       {/* Stats */}
@@ -49,7 +55,7 @@ export default function Dashboard() {
               <Sparkles className="w-4 h-4 text-primary" /> AI Summary
             </h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              You have {myTasks.length} tasks across {mockBoards.length} boards. {overdueTasks.length > 0
+              You have {myTasks.length} tasks across {boards.length} boards. {overdueTasks.length > 0
                 ? `${overdueTasks.length} task${overdueTasks.length > 1 ? 's are' : ' is'} overdue — consider reprioritizing.`
                 : 'Everything is on track!'}
             </p>
@@ -62,7 +68,7 @@ export default function Dashboard() {
           <div className="bg-card rounded-xl border border-border p-5 shadow-card">
             <h3 className="text-sm font-semibold mb-3">Recent Boards</h3>
             <div className="space-y-2">
-              {mockBoards.map(board => (
+              {boards.slice(0, 5).map(board => (
                 <Link
                   key={board.id}
                   to={`/board/${board.id}`}
@@ -100,7 +106,8 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any; label: strin
   );
 }
 
-function TaskSection({ title, tasks, emptyMsg }: { title: string; tasks: typeof mockCards; emptyMsg: string }) {
+function TaskSection({ title, tasks, emptyMsg }: { title: string; tasks: any[]; emptyMsg: string }) {
+  const { language, timezone } = useSettings();
   return (
     <div className="bg-card rounded-xl border border-border shadow-card">
       <div className="px-5 py-3 border-b border-border">
@@ -116,7 +123,11 @@ function TaskSection({ title, tasks, emptyMsg }: { title: string; tasks: typeof 
               <span className="text-sm flex-1 text-foreground">{task.title}</span>
               {task.dueDate && (
                 <span className="text-[11px] text-muted-foreground">
-                  {new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {new Date(task.dueDate).toLocaleDateString(language, {
+                    month: 'short',
+                    day: 'numeric',
+                    timeZone: timezone
+                  })}
                 </span>
               )}
             </div>
