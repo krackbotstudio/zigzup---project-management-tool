@@ -90,11 +90,11 @@ export function PomodoroTimer() {
   const dash = circ - (progress / 100) * circ;
 
   return (
-    <div className="fixed bottom-24 right-5 z-40 flex flex-col items-end gap-2">
+    <div className="fixed bottom-6 left-5 z-40 flex flex-col items-start gap-2">
 
       {/* Expanded panel */}
       {open && (
-        <div className="w-64 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
+        <div className="w-64 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200 self-start">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/10">
             <div className="flex items-center gap-2">

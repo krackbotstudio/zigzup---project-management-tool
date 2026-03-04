@@ -4,7 +4,7 @@ import {
   DragOverlay, type DragStartEvent, type DragEndEvent,
 } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
-import { Plus, GitBranch, Zap } from 'lucide-react';
+import { Plus, GitBranch, Zap, Sparkles, Loader2, SendHorizontal, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useProject } from '@/context/ProjectContext';
 import { useAuth } from '@/context/AuthContext';
+import { callClaude } from '@/lib/claude';
+import { Input } from '@/components/ui/input';
 import type { PipelineStage, PipelineStageWithStats, StageStatus } from '@/types';
 import { PipelineStageCard } from './PipelineStageCard';
 import { PipelineStageFormModal } from './PipelineStageFormModal';
@@ -89,6 +91,41 @@ export function PipelineView({ boardId }: PipelineViewProps) {
   const [editingStage, setEditingStage] = useState<PipelineStage | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PipelineStage | null>(null);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
+
+  // AI chat state
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim() || aiLoading) return;
+    setAiLoading(true);
+    try {
+      const systemPrompt = `You are a project management assistant helping to create pipeline workflow stages.
+When given a request, respond ONLY with a valid JSON array. No markdown, no explanation, just the JSON array.
+Each item must have: {"name": "string", "color": "#hexcolor", "description": "string"}
+Use distinct, vibrant hex colors. Limit to 6 stages maximum.`;
+      const result = await callClaude(
+        [{ role: 'user', content: `Create pipeline stages for: ${aiPrompt}` }],
+        systemPrompt
+      );
+      // Parse JSON from response
+      const jsonMatch = result.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error('Could not parse AI response');
+      const stages: { name: string; color: string; description: string }[] = JSON.parse(jsonMatch[0]);
+      const base = boardStages.length;
+      for (let i = 0; i < stages.length; i++) {
+        const s = stages[i];
+        await addPipelineStage({ boardId, name: s.name, description: s.description, color: s.color, listIds: [], position: base + i });
+      }
+      setAiPrompt('');
+      setAiOpen(false);
+    } catch (err: any) {
+      console.error('AI stage generation failed:', err.message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const stagesWithStats = useMemo((): PipelineStageWithStats[] => {
     const today = new Date();
@@ -176,6 +213,27 @@ export function PipelineView({ boardId }: PipelineViewProps) {
           </div>
         </div>
 
+        {/* AI prompt input */}
+        <div className="mt-4 w-full max-w-sm">
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2 text-center">Or describe your workflow</p>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary" />
+              <Input
+                placeholder="e.g. Design sprint with 5 stages..."
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAiGenerate()}
+                className="pl-9 h-9 text-sm bg-muted/20 border-border"
+                disabled={aiLoading}
+              />
+            </div>
+            <Button size="sm" onClick={handleAiGenerate} disabled={!aiPrompt.trim() || aiLoading} className="h-9 px-3">
+              {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendHorizontal className="w-4 h-4" />}
+            </Button>
+          </div>
+        </div>
+
         <PipelineStageFormModal
           boardId={boardId}
           stage={editingStage}
@@ -190,17 +248,54 @@ export function PipelineView({ boardId }: PipelineViewProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border/40 bg-background/60 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold text-foreground">Workflow Pipeline</span>
-          <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
-            {boardStages.length} stage{boardStages.length !== 1 ? 's' : ''}
-          </span>
+      <div className="border-b border-border/40 bg-background/60 backdrop-blur-sm">
+        <div className="flex items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-primary" />
+            <span className="text-sm font-semibold text-foreground">Workflow Pipeline</span>
+            <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+              {boardStages.length} stage{boardStages.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={aiOpen ? 'secondary' : 'outline'}
+              onClick={() => setAiOpen(o => !o)}
+              className="h-8 gap-1.5 text-xs"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
+              AI Generate
+            </Button>
+            <Button size="sm" onClick={() => { setEditingStage(null); setModalOpen(true); }}>
+              <Plus className="w-3.5 h-3.5 mr-1" /> Add Stage
+            </Button>
+          </div>
         </div>
-        <Button size="sm" onClick={() => { setEditingStage(null); setModalOpen(true); }}>
-          <Plus className="w-3.5 h-3.5 mr-1" /> Add Stage
-        </Button>
+        {/* AI input row */}
+        {aiOpen && (
+          <div className="flex items-center gap-2 px-6 pb-3 animate-in slide-in-from-top-2 duration-200">
+            <div className="relative flex-1">
+              <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary" />
+              <Input
+                autoFocus
+                placeholder="Describe your workflow stages, e.g. 'Agile sprint with QA and deployment stages'"
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAiGenerate()}
+                className="pl-9 h-9 text-sm bg-muted/20 border-border"
+                disabled={aiLoading}
+              />
+            </div>
+            <Button size="sm" onClick={handleAiGenerate} disabled={!aiPrompt.trim() || aiLoading} className="h-9 px-3 gap-1.5">
+              {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <SendHorizontal className="w-4 h-4" />}
+              {aiLoading ? 'Generating...' : 'Generate'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setAiOpen(false); setAiPrompt(''); }} className="h-9 w-9 p-0">
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Stage cards */}
