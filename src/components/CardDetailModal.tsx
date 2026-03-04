@@ -1,7 +1,7 @@
 import {
-  X, Calendar as CalendarIcon, Tag, Users, CheckSquare, MessageSquare,
+  X, Calendar as CalendarIcon, Tag, CheckSquare, MessageSquare,
   Sparkles, Trash2, ChevronDown, Link as LinkIcon,
-  ExternalLink, Plus, Globe, Send, MoreHorizontal
+  ExternalLink, Plus, Globe, Send, CheckCircle2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
@@ -13,13 +13,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useProject } from '@/context/ProjectContext';
+import { useAuth } from '@/context/AuthContext';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const priorityColors: Record<Priority, string> = {
   critical: 'bg-priority-critical text-white',
@@ -42,7 +43,8 @@ interface CardDetailModalProps {
 }
 
 export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProps) {
-  const { deleteCard, members } = useProject();
+  const { deleteCard, members, activeWorkspaceId } = useProject();
+  const { user } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('medium');
@@ -63,6 +65,20 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
   }, [card]);
 
   if (!card) return null;
+
+  // Deduplicate workspace members by userId — only current workspace
+  const workspaceMembers = members
+    .filter(m => m.workspaceId === activeWorkspaceId)
+    .filter((m, idx, arr) => arr.findIndex(x => x.userId === m.userId) === idx);
+
+  // Actual logged-in user display info
+  const myName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email?.split('@')[0] ||
+    'You';
+  const myAvatar = user?.user_metadata?.avatar_url || null;
+  const myInitial = myName.charAt(0).toUpperCase();
 
   const handleUpdate = (updates: Partial<Card>) => {
     onUpdate(updates);
@@ -91,7 +107,7 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
     handleUpdate({ checklistItems: card.checklistItems?.filter(i => i.id !== todoId) });
   };
 
-  // Links/Embeds logic
+  // Links logic
   const addLink = (type: 'link' | 'embed') => {
     if (!newLinkUrl.trim()) return;
     const newLink: CardLink = {
@@ -109,13 +125,13 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
     handleUpdate({ links: card.links?.filter(l => l.id !== id) });
   };
 
-  // Comments logic
+  // Comments logic — uses real user info
   const addComment = () => {
     if (!commentText.trim()) return;
     const newComment: CardComment = {
       id: `comment-${Date.now()}`,
-      userId: 'u-1',
-      userName: 'Alex Chen',
+      userId: user?.id || 'anonymous',
+      userName: myName,
       text: commentText,
       createdAt: new Date().toISOString()
     };
@@ -142,26 +158,37 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
     handleUpdate({ labels: newLabels });
   };
 
+  const checkedCount = card.checklistItems?.filter(i => i.isCompleted).length || 0;
+  const totalCount = card.checklistItems?.length || 0;
+  const checklistProgress = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-12 px-4 backdrop-blur-sm bg-foreground/10 animate-in fade-in duration-200" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-8 px-4 backdrop-blur-sm bg-foreground/10 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
       <div
-        className="relative bg-popover text-popover-foreground rounded-2xl shadow-elegant w-full max-w-4xl max-h-[90vh] flex flex-col border border-border animate-in zoom-in-95 duration-200 overflow-hidden"
+        className="relative bg-card text-card-foreground rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col border border-border animate-in zoom-in-95 duration-200 overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* Top Header */}
-        <div className="flex items-start justify-between p-6 pb-2 shrink-0 border-b border-border/50 bg-muted/5">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-3">
+        {/* ── Top Header ── */}
+        <div className="flex items-start justify-between px-6 pt-5 pb-4 shrink-0 border-b border-border bg-muted/5">
+          <div className="flex-1 min-w-0">
+            {/* Priority + dates row */}
+            <div className="flex flex-wrap items-center gap-2 mb-3">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className={cn("text-[10px] font-bold uppercase px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all shadow-sm ring-1 ring-inset ring-foreground/10", priorityColors[priority])}>
+                  <button className={cn(
+                    "text-[10px] font-bold uppercase px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-sm ring-1 ring-inset ring-foreground/10 transition-all",
+                    priorityColors[priority]
+                  )}>
                     {priority} <ChevronDown className="w-3 h-3 opacity-70" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-32">
                   {(['low', 'medium', 'high', 'critical'] as Priority[]).map(p => (
-                    <DropdownMenuItem key={p} onClick={() => { setPriority(p); handleUpdate({ priority: p }); }} className="text-xs">
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                    <DropdownMenuItem key={p} onClick={() => { setPriority(p); handleUpdate({ priority: p }); }} className="text-xs capitalize">
+                      {p}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -169,249 +196,245 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
 
               <div className="h-4 w-px bg-border" />
 
-              <div className="flex items-center gap-2 text-xs font-medium">
-                {/* Start Date Picker */}
-                <Popover open={startPickerOpen} onOpenChange={setStartPickerOpen}>
-                  <PopoverTrigger asChild>
-                    <button className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
-                      <CalendarIcon className="w-3.5 h-3.5" />
-                      Start: {card.startDate ? format(new Date(card.startDate), 'MMM d, yyyy') : 'Set date'}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={card.startDate ? new Date(card.startDate) : undefined}
-                      onSelect={(date) => {
-                        handleUpdate({ startDate: date ? date.toISOString() : undefined });
-                        setStartPickerOpen(false);
-                      }}
-                      initialFocus
-                    />
-                    {card.startDate && (
-                      <div className="border-t border-border p-2">
-                        <button
-                          onClick={() => { handleUpdate({ startDate: undefined }); setStartPickerOpen(false); }}
-                          className="w-full text-xs text-muted-foreground hover:text-destructive py-1 transition-colors"
-                        >
-                          Clear date
-                        </button>
-                      </div>
-                    )}
-                  </PopoverContent>
-                </Popover>
+              {/* Start date */}
+              <Popover open={startPickerOpen} onOpenChange={setStartPickerOpen}>
+                <PopoverTrigger asChild>
+                  <button className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 border border-border/40 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+                    <CalendarIcon className="w-3.5 h-3.5" />
+                    Start: {card.startDate ? format(new Date(card.startDate), 'MMM d') : 'Set date'}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={card.startDate ? new Date(card.startDate) : undefined}
+                    onSelect={(date) => { handleUpdate({ startDate: date?.toISOString() }); setStartPickerOpen(false); }} initialFocus />
+                  {card.startDate && (
+                    <div className="border-t border-border p-2">
+                      <button onClick={() => { handleUpdate({ startDate: undefined }); setStartPickerOpen(false); }}
+                        className="w-full text-xs text-muted-foreground hover:text-destructive py-1 transition-colors">Clear date</button>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
 
-                {/* Due Date Picker */}
-                <Popover open={duePickerOpen} onOpenChange={setDuePickerOpen}>
-                  <PopoverTrigger asChild>
-                    <button className={cn(
-                      "flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50 hover:bg-muted transition-colors",
-                      card.dueDate && new Date(card.dueDate) < new Date()
-                        ? "text-priority-critical hover:text-priority-critical"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}>
-                      <CalendarIcon className="w-3.5 h-3.5" />
-                      Due: {card.dueDate ? format(new Date(card.dueDate), 'MMM d, yyyy') : 'Set date'}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={card.dueDate ? new Date(card.dueDate) : undefined}
-                      onSelect={(date) => {
-                        handleUpdate({ dueDate: date ? date.toISOString() : undefined });
-                        setDuePickerOpen(false);
-                      }}
-                      initialFocus
-                    />
-                    {card.dueDate && (
-                      <div className="border-t border-border p-2">
-                        <button
-                          onClick={() => { handleUpdate({ dueDate: undefined }); setDuePickerOpen(false); }}
-                          className="w-full text-xs text-muted-foreground hover:text-destructive py-1 transition-colors"
-                        >
-                          Clear date
-                        </button>
-                      </div>
-                    )}
-                  </PopoverContent>
-                </Popover>
-              </div>
+              {/* Due date */}
+              <Popover open={duePickerOpen} onOpenChange={setDuePickerOpen}>
+                <PopoverTrigger asChild>
+                  <button className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/60 border border-border/40 text-xs transition-colors",
+                    card.dueDate && new Date(card.dueDate) < new Date()
+                      ? "text-red-500 border-red-500/30 bg-red-500/10 hover:bg-red-500/20"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}>
+                    <CalendarIcon className="w-3.5 h-3.5" />
+                    Due: {card.dueDate ? format(new Date(card.dueDate), 'MMM d') : 'Set date'}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={card.dueDate ? new Date(card.dueDate) : undefined}
+                    onSelect={(date) => { handleUpdate({ dueDate: date?.toISOString() }); setDuePickerOpen(false); }} initialFocus />
+                  {card.dueDate && (
+                    <div className="border-t border-border p-2">
+                      <button onClick={() => { handleUpdate({ dueDate: undefined }); setDuePickerOpen(false); }}
+                        className="w-full text-xs text-muted-foreground hover:text-destructive py-1 transition-colors">Clear date</button>
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
             </div>
 
+            {/* Title */}
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onBlur={() => handleUpdate({ title })}
-              className="text-2xl font-bold bg-transparent border-none p-0 focus-visible:ring-0 shadow-none h-auto mb-1 tracking-tight"
+              className="text-xl font-bold bg-transparent border-none p-0 focus-visible:ring-0 shadow-none h-auto mb-0.5 tracking-tight text-foreground placeholder:text-muted-foreground/50"
               placeholder="Task title..."
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => { deleteCard(card.id); onClose(); }} className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-              <Trash2 className="w-4.5 h-4.5" />
+
+          {/* Header actions */}
+          <div className="flex items-center gap-1 ml-4 shrink-0">
+            <Button variant="ghost" size="icon" onClick={() => { deleteCard(card.id); onClose(); }}
+              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+              <Trash2 className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={onClose} className="h-9 w-9 text-muted-foreground">
-              <X className="w-5 h-5" />
+            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 text-muted-foreground">
+              <X className="w-4 h-4" />
             </Button>
           </div>
         </div>
 
+        {/* ── Body ── */}
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
-          <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Main Content (Left) */}
-            <div className="lg:col-span-8 space-y-10">
+          <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-              {/* Description Section */}
-              <section className="space-y-3">
-                <h3 className="text-sm font-bold flex items-center gap-2 text-foreground">
-                  Description
-                </h3>
+            {/* ── Left: Main content ── */}
+            <div className="lg:col-span-8 space-y-8">
+
+              {/* Description */}
+              <section>
+                <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Description</h4>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   onBlur={() => handleUpdate({ description })}
                   placeholder="What is this task about?"
-                  className="min-h-[140px] text-sm bg-muted/10 border-border/50 focus:bg-background transition-all rounded-xl leading-relaxed"
+                  className="min-h-[120px] text-sm bg-muted/20 border-border focus:bg-background focus:border-primary/40 transition-all rounded-xl leading-relaxed resize-none"
                 />
               </section>
 
-              {/* Checklist Section */}
-              <section className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold flex items-center gap-2.5">
-                    <CheckSquare className="w-4 h-4 text-primary" /> Checklist / Todos
-                  </h3>
-                  <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                    {card.checklistItems?.filter(i => i.isCompleted).length || 0} / {card.checklistItems?.length || 0}
-                  </span>
+              {/* Checklist */}
+              <section>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                    <CheckSquare className="w-3.5 h-3.5" /> Checklist
+                    <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded border border-border">
+                      {checkedCount}/{totalCount}
+                    </span>
+                  </h4>
+                  {totalCount > 0 && (
+                    <span className="text-[10px] font-bold text-primary">{checklistProgress}%</span>
+                  )}
                 </div>
 
-                <div className="space-y-2">
+                {/* Progress bar */}
+                {totalCount > 0 && (
+                  <div className="h-1.5 bg-muted rounded-full mb-4 overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-500"
+                      style={{ width: `${checklistProgress}%` }}
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
                   {card.checklistItems?.map(item => (
-                    <div key={item.id} className="flex items-center gap-3 bg-muted/10 p-2.5 rounded-xl group hover:bg-muted/20 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={item.isCompleted}
-                        onChange={() => toggleTodo(item.id)}
-                        className="w-4.5 h-4.5 rounded-md border-border text-primary shadow-sm"
-                      />
+                    <div key={item.id} className="flex items-center gap-3 px-3 py-2 rounded-lg group hover:bg-muted/30 transition-colors">
+                      <button
+                        onClick={() => toggleTodo(item.id)}
+                        className={cn(
+                          "w-4.5 h-4.5 rounded border-2 flex items-center justify-center shrink-0 transition-all",
+                          item.isCompleted
+                            ? "bg-primary border-primary"
+                            : "border-border hover:border-primary/60 bg-background"
+                        )}
+                      >
+                        {item.isCompleted && (
+                          <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" /></svg>
+                        )}
+                      </button>
                       <span className={cn("text-sm flex-1", item.isCompleted && "line-through text-muted-foreground")}>
                         {item.content}
                       </span>
-                      <Button variant="ghost" size="icon" onClick={() => removeTodo(item.id)} className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <X className="w-3.5 h-3.5 text-muted-foreground" />
+                      <Button variant="ghost" size="icon" onClick={() => removeTodo(item.id)}
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <X className="w-3 h-3 text-muted-foreground" />
                       </Button>
                     </div>
                   ))}
-                  <div className="flex items-center gap-2 pl-7 mt-3">
+
+                  {/* Add item row */}
+                  <div className="flex items-center gap-2 pt-1">
                     <Input
-                      placeholder="Add an item..."
+                      placeholder="Add a checklist item..."
                       value={newTodo}
                       onChange={(e) => setNewTodo(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && addCriterion()}
-                      className="text-sm h-9 bg-transparent border-dashed"
+                      className="text-sm h-9 bg-muted/20 border-border/60 focus:bg-background focus:border-primary/40"
                     />
-                    <Button onClick={addCriterion} size="sm" className="h-9 shrink-0 gap-1.5 px-3">
+                    <Button onClick={addCriterion} size="sm" className="h-9 shrink-0 px-3 gap-1">
                       <Plus className="w-3.5 h-3.5" /> Add
                     </Button>
                   </div>
                 </div>
               </section>
 
-              {/* Links & Embeds Section */}
-              <section className="space-y-4">
-                <h3 className="text-sm font-bold flex items-center gap-2.5">
-                  <LinkIcon className="w-4 h-4 text-primary" /> Links & Resources
-                </h3>
+              {/* Links & Resources */}
+              <section>
+                <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2 mb-3">
+                  <LinkIcon className="w-3.5 h-3.5" /> Links & Resources
+                </h4>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
                   {card.links?.filter(l => l.type === 'link').map(link => (
-                    <div key={link.id} className="flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-background shadow-sm hover:border-primary/30 transition-all group">
-                      <div className="p-2 bg-primary/5 text-primary rounded-lg group-hover:bg-primary group-hover:text-white transition-colors">
-                        <Globe className="w-4 h-4" />
+                    <div key={link.id} className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-muted/10 hover:border-primary/30 hover:bg-muted/20 transition-all group">
+                      <div className="p-1.5 bg-primary/10 text-primary rounded-lg shrink-0">
+                        <Globe className="w-3.5 h-3.5" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold truncate">{link.title}</p>
+                        <p className="text-xs font-semibold truncate">{link.title}</p>
                         <a href={link.url} target="_blank" rel="noreferrer" className="text-[10px] text-primary hover:underline truncate block">
                           {link.url}
                         </a>
                       </div>
-                      <Button variant="ghost" size="icon" onClick={() => removeLink(link.id)} className="h-7 w-7 opacity-0 group-hover:opacity-100 shrink-0">
-                        <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
+                      <Button variant="ghost" size="icon" onClick={() => removeLink(link.id)}
+                        className="h-7 w-7 opacity-0 group-hover:opacity-100 shrink-0">
+                        <X className="w-3 h-3 text-muted-foreground" />
                       </Button>
                     </div>
                   ))}
 
-                  <div className="p-3 rounded-xl border border-dashed border-border bg-muted/5 flex flex-col gap-2">
+                  {/* Add link */}
+                  <div className="p-3 rounded-xl border border-dashed border-border/60 bg-muted/5 space-y-2">
                     <Input
                       placeholder="Link title (optional)"
                       value={newLinkTitle}
                       onChange={(e) => setNewLinkTitle(e.target.value)}
-                      className="text-[11px] h-7 px-2"
+                      className="text-xs h-8 bg-muted/20 border-border/60 focus:bg-background focus:border-primary/40"
                     />
                     <div className="flex gap-2">
                       <Input
                         placeholder="Paste URL here..."
                         value={newLinkUrl}
                         onChange={(e) => setNewLinkUrl(e.target.value)}
-                        className="text-[11px] h-7 px-2 flex-1"
+                        onKeyDown={(e) => e.key === 'Enter' && addLink('link')}
+                        className="text-xs h-8 flex-1 bg-muted/20 border-border/60 focus:bg-background focus:border-primary/40"
                       />
-                      <Button onClick={() => addLink('link')} size="sm" className="h-7 text-[10px] font-bold">
-                        Attach
-                      </Button>
+                      <Button onClick={() => addLink('link')} size="sm" className="h-8 text-xs px-3">Attach</Button>
                     </div>
                   </div>
-                </div>
 
-                {/* Website Embeds */}
-                {card.links?.some(l => l.type === 'embed') && (
-                  <div className="mt-8 space-y-4">
-                    <h4 className="text-xs font-bold text-muted-foreground flex items-center gap-2">
-                      <ExternalLink className="w-3.5 h-3.5" /> Website Previews
-                    </h4>
-                    <div className="space-y-6">
+                  {/* Embeds */}
+                  {card.links?.some(l => l.type === 'embed') && (
+                    <div className="pt-2 space-y-4">
+                      <h5 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <ExternalLink className="w-3 h-3" /> Website Previews
+                      </h5>
                       {card.links?.filter(l => l.type === 'embed').map(embed => (
-                        <div key={embed.id} className="p-0 rounded-2xl border border-border overflow-hidden bg-background shadow-lg group">
-                          <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between">
+                        <div key={embed.id} className="rounded-2xl border border-border overflow-hidden shadow-sm group">
+                          <div className="px-3 py-2 bg-muted/20 border-b border-border flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <Globe className="w-3.5 h-3.5 opacity-60" />
-                              <span className="text-[10px] font-bold tracking-wide uppercase opacity-70">{embed.title}</span>
+                              <Globe className="w-3 h-3 opacity-50" />
+                              <span className="text-[10px] font-bold uppercase tracking-wide opacity-60">{embed.title}</span>
                             </div>
                             <Button variant="ghost" size="icon" onClick={() => removeLink(embed.id)} className="h-6 w-6">
-                              <X className="w-3.5 h-3.5" />
+                              <X className="w-3 h-3" />
                             </Button>
                           </div>
-                          <div className="aspect-video w-full relative bg-muted">
-                            <iframe
-                              src={embed.url}
-                              className="absolute inset-0 w-full h-full border-0 pointer-events-none opacity-90 group-hover:pointer-events-auto group-hover:opacity-100 transition-all"
-                              title={embed.title}
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/5 group-hover:hidden backdrop-blur-[1px]">
-                              <Button variant="secondary" size="sm" className="gap-2 h-7 text-[10px]">
-                                Click to Interact
-                              </Button>
+                          <div className="aspect-video relative bg-muted">
+                            <iframe src={embed.url} className="absolute inset-0 w-full h-full border-0 pointer-events-none group-hover:pointer-events-auto opacity-90 group-hover:opacity-100 transition-all" title={embed.title} />
+                            <div className="absolute inset-0 flex items-center justify-center group-hover:hidden">
+                              <Button variant="secondary" size="sm" className="gap-2 h-7 text-[10px]">Click to Interact</Button>
                             </div>
                           </div>
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </section>
 
-              {/* Comments Section */}
-              <section className="pt-6 border-t border-border">
-                <h3 className="text-sm font-bold flex items-center gap-2.5 mb-6">
-                  <MessageSquare className="w-4 h-4 text-primary" /> Team Updates & Discussion
-                </h3>
+              {/* Team Updates / Comments */}
+              <section className="pt-2 border-t border-border/50">
+                <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2 mb-5">
+                  <MessageSquare className="w-3.5 h-3.5" /> Team Updates & Discussion
+                </h4>
 
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {card.comments?.map(comment => (
-                    <div key={comment.id} className="flex gap-4">
-                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20 text-xs font-bold text-primary">
-                        {comment.userName.charAt(0)}
+                    <div key={comment.id} className="flex gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 text-xs font-bold text-primary">
+                        {comment.userName.charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center gap-2">
@@ -420,30 +443,34 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
                             {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <div className="bg-muted/30 p-3 rounded-2xl rounded-tl-none text-sm leading-relaxed text-foreground/90 inline-block max-w-full">
+                        <div className="bg-muted/30 border border-border/40 px-4 py-2.5 rounded-2xl rounded-tl-none text-sm leading-relaxed">
                           {comment.text}
                         </div>
                       </div>
                     </div>
                   ))}
 
-                  <div className="flex gap-4 mt-8 bg-muted/10 p-4 rounded-2xl border border-border/40">
-                    <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0 border border-border text-xs font-bold text-muted-foreground">
-                      A
-                    </div>
-                    <div className="flex-1 relative flex flex-col gap-2">
+                  {/* Compose */}
+                  <div className="flex gap-3 pt-2">
+                    <Avatar className="w-8 h-8 shrink-0 border border-border">
+                      {myAvatar && <AvatarImage src={myAvatar} referrerPolicy="no-referrer" />}
+                      <AvatarFallback className="text-xs font-bold bg-primary/10 text-primary">{myInitial}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 bg-muted/20 border border-border/60 rounded-2xl rounded-tl-none overflow-hidden focus-within:border-primary/40 focus-within:bg-background transition-all">
                       <Textarea
-                        placeholder="Type your update or mention a teammate..."
+                        placeholder="Write an update or @mention a teammate..."
                         value={commentText}
                         onChange={(e) => setCommentText(e.target.value)}
-                        className="min-h-[80px] bg-background border-none shadow-none focus-visible:ring-0 text-sm p-0 mb-8"
+                        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) addComment(); }}
+                        className="min-h-[72px] bg-transparent border-none shadow-none focus-visible:ring-0 text-sm p-3 resize-none"
                       />
-                      <div className="absolute bottom-0 right-0 flex items-center gap-3">
-                        <Button size="sm" variant="ghost" className="h-8 text-[11px] gap-2">
-                          <Tag className="w-3.5 h-3.5" /> Mention
+                      <div className="flex items-center justify-between px-3 pb-2.5">
+                        <Button size="sm" variant="ghost" className="h-7 text-[11px] gap-1.5 text-muted-foreground">
+                          <Tag className="w-3 h-3" /> Mention
                         </Button>
-                        <Button size="sm" onClick={addComment} className="h-8 px-4 gap-2 text-[11px] font-bold shadow-lg shadow-primary/20">
-                          Post Update <Send className="w-3.5 h-3.5" />
+                        <Button size="sm" onClick={addComment} disabled={!commentText.trim()}
+                          className="h-7 px-3 gap-1.5 text-[11px] font-bold">
+                          Post <Send className="w-3 h-3" />
                         </Button>
                       </div>
                     </div>
@@ -452,50 +479,59 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
               </section>
             </div>
 
-            {/* Sidebar (Right) */}
-            <div className="lg:col-span-4 space-y-8">
+            {/* ── Right: Sidebar ── */}
+            <div className="lg:col-span-4 space-y-5">
 
-              {/* Assignees Side Panel */}
-              <div className="bg-card rounded-2xl border border-border/80 shadow-sm p-5 space-y-5">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center justify-between">
-                  Collaborators
-                  <Button variant="ghost" size="icon" className="h-6 w-6"><Plus className="w-4 h-4" /></Button>
-                </h3>
-                <div className="space-y-3">
-                  {members.map(member => (
-                    <button
-                      key={member.id}
-                      onClick={() => toggleAssignee(member.userId)}
-                      className={cn(
-                        "flex items-center gap-3 w-full p-2.5 rounded-xl transition-all border border-transparent",
-                        card.assignees.includes(member.userId)
-                          ? "bg-primary/5 border-primary/20"
-                          : "hover:bg-muted/40"
-                      )}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary ring-2 ring-background">
-                        {member.name.charAt(0)}
-                      </div>
-                      <div className="text-left overflow-hidden">
-                        <p className="text-xs font-bold text-foreground truncate">{member.name}</p>
-                        <p className="text-[10px] text-muted-foreground truncate">{member.role}</p>
-                      </div>
-                      {card.assignees.includes(member.userId) && (
-                        <div className="ml-auto flex items-center text-primary">
-                          <Check className="w-4 h-4" />
+              {/* Collaborators */}
+              <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/10">
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Collaborators</h4>
+                  <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full border border-border">
+                    {card.assignees.length} assigned
+                  </span>
+                </div>
+                <div className="p-2 space-y-1 max-h-56 overflow-y-auto">
+                  {workspaceMembers.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-4">No members in this workspace</p>
+                  )}
+                  {workspaceMembers.map(member => {
+                    const isAssigned = card.assignees.includes(member.userId);
+                    return (
+                      <button
+                        key={member.userId}
+                        onClick={() => toggleAssignee(member.userId)}
+                        className={cn(
+                          "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg transition-all text-left",
+                          isAssigned
+                            ? "bg-primary/8 border border-primary/20"
+                            : "hover:bg-muted/40 border border-transparent"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ring-2 ring-background",
+                          isAssigned ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                        )}>
+                          {member.name.charAt(0).toUpperCase()}
                         </div>
-                      )}
-                    </button>
-                  ))}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold truncate">{member.name}</p>
+                          <p className="text-[10px] text-muted-foreground capitalize">{member.role}</p>
+                        </div>
+                        {isAssigned && (
+                          <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Tags Section */}
-              <div className="bg-card rounded-2xl border border-border/80 shadow-sm p-5 space-y-4">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                  Tags & Labels
-                </h3>
-                <div className="flex flex-wrap gap-2">
+              {/* Tags & Labels */}
+              <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-border bg-muted/10">
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Tags & Labels</h4>
+                </div>
+                <div className="p-3 flex flex-wrap gap-2">
                   {availableLabels.map(label => {
                     const active = card.labels.some(l => l.id === label.id);
                     return (
@@ -503,14 +539,17 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
                         key={label.id}
                         onClick={() => toggleLabel(label)}
                         className={cn(
-                          "text-xs px-3 py-1.5 rounded-lg border transition-all flex items-center gap-2",
+                          "text-xs px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5",
                           active
-                            ? "border-transparent text-white font-bold"
-                            : "bg-transparent border-border text-muted-foreground hover:border-primary/50"
+                            ? "font-bold text-white border-transparent shadow-sm"
+                            : "bg-muted/30 border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
                         )}
                         style={{ backgroundColor: active ? label.color : undefined }}
                       >
-                        <div className={cn("w-1.5 h-1.5 rounded-full", active ? "bg-white" : "bg-muted-foreground")} style={{ backgroundColor: active ? 'white' : label.color }} />
+                        <div
+                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: active ? 'white' : label.color }}
+                        />
                         {label.name}
                       </button>
                     );
@@ -518,23 +557,22 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
                 </div>
               </div>
 
-              {/* Side AI Helper */}
-              <div className="p-5 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-3xl border border-primary/10 shadow-inner relative overflow-hidden group">
-                <div className="absolute -right-4 -top-4 w-24 h-24 bg-primary/10 rounded-full blur-3xl group-hover:bg-primary/20 transition-all animate-pulse" />
-                <h3 className="text-xs font-black uppercase tracking-widest text-primary mb-3 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" /> Copilot Insights
-                </h3>
-                <p className="text-[11px] text-foreground/80 leading-relaxed mb-4 relative z-10">
-                  This task has <strong>{card.checklistItems?.length || 0} subtasks</strong>. Based on team availability, I suggest assigning this to <strong>Dev Patel</strong> to ensure the deadline is met.
+              {/* AI Copilot */}
+              <div className="p-4 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl border border-primary/10 relative overflow-hidden group">
+                <div className="absolute -right-4 -top-4 w-24 h-24 bg-primary/10 rounded-full blur-3xl group-hover:bg-primary/20 transition-all" />
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-primary mb-2 flex items-center gap-1.5 relative z-10">
+                  <Sparkles className="w-3.5 h-3.5" /> Copilot Insights
+                </h4>
+                <p className="text-[11px] text-foreground/80 leading-relaxed mb-3 relative z-10">
+                  This task has <strong>{card.checklistItems?.length || 0} subtasks</strong>,{' '}
+                  {card.assignees.length === 0
+                    ? 'no assignees yet — consider assigning someone.'
+                    : `${card.assignees.length} collaborator(s) assigned.`}
                 </p>
-                <div className="grid grid-cols-2 gap-2 relative z-10">
-                  <Button variant="secondary" size="sm" className="w-full text-[10px] h-8 bg-background/80 hover:bg-background shadow-sm border-border/50">
-                    Ask AI
-                  </Button>
-                  <Button variant="outline" size="sm" className="w-full text-[10px] h-8 hover:bg-background border-primary/20">
-                    Log Time
-                  </Button>
-                </div>
+                <Button variant="secondary" size="sm"
+                  className="w-full text-[10px] h-7 bg-background/80 hover:bg-background shadow-sm border-border/50 relative z-10">
+                  Ask AI about this task
+                </Button>
               </div>
 
             </div>
@@ -543,10 +581,4 @@ export function CardDetailModal({ card, onClose, onUpdate }: CardDetailModalProp
       </div>
     </div>
   );
-}
-
-function Check({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M20 6L9 17l-5-5" /></svg>
-  )
 }

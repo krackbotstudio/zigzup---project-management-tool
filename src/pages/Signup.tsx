@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,12 +25,21 @@ export default function Signup() {
     const navigate = useNavigate();
     const { toast } = useToast();
     const { user } = useAuth();
+    const [searchParams] = useSearchParams();
+    const inviteId = searchParams.get('invite');
+    const prefillEmail = searchParams.get('email') || '';
+    const redirectTo = inviteId ? `/invite?id=${inviteId}` : '/dashboard';
+
+    // Pre-fill email from invite link
+    useEffect(() => {
+        if (prefillEmail && !email) setEmail(prefillEmail);
+    }, [prefillEmail]);
 
     useEffect(() => {
         if (user) {
-            navigate('/dashboard');
+            navigate(redirectTo);
         }
-    }, [user, navigate]);
+    }, [user, navigate, redirectTo]);
 
     const handleSignup = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -52,7 +61,7 @@ export default function Signup() {
                 title: "Account created!",
                 description: "Welcome to ZigZup.",
             });
-            navigate('/dashboard');
+            navigate(redirectTo);
         } catch (error: any) {
             toast({
                 title: "Signup failed",

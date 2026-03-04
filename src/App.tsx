@@ -21,6 +21,7 @@ import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
 import Contact from "@/pages/Contact";
 import Donate from "@/pages/Donate";
+import InvitePage from "@/pages/InvitePage";
 
 import { ProjectProvider } from "./context/ProjectContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -69,6 +70,7 @@ const App = () => (
                   <Route path="/terms" element={<Terms />} />
                   <Route path="/contact" element={<Contact />} />
                   <Route path="/donate" element={<Donate />} />
+                  <Route path="/invite" element={<InvitePage />} />
 
                   {/* Protected Routes */}
                   <Route element={

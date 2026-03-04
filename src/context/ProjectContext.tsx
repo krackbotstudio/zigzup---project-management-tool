@@ -47,7 +47,7 @@ interface ProjectContextType {
     reorderPipelineStages: (boardId: string, orderedIds: string[]) => Promise<void>;
 
     // Invite Actions
-    inviteUser: (email: string, role: string) => Promise<void>;
+    inviteUser: (email: string, role: string) => Promise<string>;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -102,6 +102,7 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
     const [members, setMembers] = useState<WorkspaceMember[]>([]);
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
+    const [fetchTrigger, setFetchTrigger] = useState(0);
 
     useEffect(() => {
         if (!user?.email) return;
@@ -117,15 +118,26 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
 
             if (invites && invites.length > 0) {
                 for (const invite of invites) {
-                    await supabase.from('members').insert(toSnake({
+                    const { error: memberError } = await supabase.from('members').upsert(toSnake({
                         workspaceId: invite.workspace_id,
                         userId: user.id,
                         email: user.email,
                         name: user.user_metadata?.name || user.email?.split('@')[0] || 'Member',
                         role: invite.role,
                         avatar: user.user_metadata?.avatar_url
-                    }));
-                    await supabase.from('invites').update({ status: 'accepted' }).eq('id', invite.id);
+                    }), { onConflict: 'workspace_id,user_id' });
+
+                    if (!memberError) {
+                        await supabase.from('invites').update({ status: 'accepted' }).eq('id', invite.id);
+                        await supabase.from('notifications').insert(toSnake({
+                            userId: user.id,
+                            title: 'Added to workspace',
+                            message: `You've been added to "${invite.workspace_name}" as ${invite.role} by ${invite.invited_by}.`,
+                            type: 'system',
+                            isRead: false,
+                            createdAt: new Date().toISOString()
+                        }));
+                    }
                 }
             }
 
@@ -241,7 +253,23 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
             isSubscribed = false;
             supabase.removeChannel(channel);
         };
-    }, [user?.id]);
+    }, [user?.id, fetchTrigger]);
+
+    // Watch for new invites while the user is already logged in
+    useEffect(() => {
+        if (!user?.email) return;
+
+        const channel = supabase.channel('invite-watcher')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'invites' }, (payload) => {
+                if (payload.new?.invited_email === user.email) {
+                    // Bump trigger so the main effect re-runs and auto-accepts the new invite
+                    setFetchTrigger(t => t + 1);
+                }
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [user?.email]);
 
     // Workspace CRUD
     const addWorkspace = async (name: string) => {
@@ -386,14 +414,14 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const inviteUser = async (email: string, role: string) => {
-        if (!activeWorkspaceId || !user) return;
+    const inviteUser = async (email: string, role: string): Promise<string> => {
+        if (!activeWorkspaceId || !user) return '';
 
         const currentWs = workspaces.find(w => w.id === activeWorkspaceId);
         const workspaceName = currentWs?.name || 'a Workspace';
         const inviterName = user.user_metadata?.name || user.email;
 
-        await supabase.from('invites').insert(toSnake({
+        const { data } = await supabase.from('invites').insert(toSnake({
             workspaceId: activeWorkspaceId,
             workspaceName,
             invitedBy: inviterName,
@@ -401,10 +429,9 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
             role,
             status: 'pending',
             createdAt: new Date().toISOString()
-        }));
+        })).select('id').single();
 
-        // In a real production setup, use Supabase Edge Functions hooking into the 'invites' table INSERT
-        // to send the actual email, replacing the Firebase extension behavior.
+        return data?.id ?? '';
     };
 
     // Notification Actions

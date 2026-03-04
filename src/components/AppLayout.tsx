@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { ZigChat } from './ZigChat';
+import { PomodoroTimer } from './PomodoroTimer';
 
 export function AppLayout() {
   return (
@@ -9,6 +10,7 @@ export function AppLayout() {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+      <PomodoroTimer />
       <ZigChat />
     </div>
   );
