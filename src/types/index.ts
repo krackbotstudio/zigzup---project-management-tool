@@ -184,3 +184,18 @@ export interface CRMActivity {
   createdBy?: string;
   createdAt: string;
 }
+
+export type CRMViewMode = 'table' | 'kanban' | 'list';
+
+export interface ImportRow {
+  name?: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  website?: string;
+  dealValue?: string;
+  stage?: string;
+  source?: string;
+  currency?: string;
+  [key: string]: string | undefined;
+}

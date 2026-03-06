@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { CRMContact, CRMLead, CRMActivity, CRMLeadWithCard, CRMLeadSource } from '@/types';
+import { CRMContact, CRMLead, CRMActivity, CRMLeadWithCard, CRMLeadSource, Card, ImportRow } from '@/types';
 import { useProject } from '@/context/ProjectContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -61,6 +61,9 @@ interface CRMContextType {
 
   initCRMBoard: () => Promise<void>;
 
+  updateCard: (id: string, updates: Partial<Card>) => Promise<void>;
+  bulkImportLeads: (rows: ImportRow[]) => Promise<{ created: number; skipped: number }>;
+
   addContact: (data: Omit<CRMContact, 'id' | 'createdAt' | 'workspaceId'>) => Promise<string>;
   updateContact: (id: string, data: Partial<CRMContact>) => Promise<void>;
   deleteContact: (id: string) => Promise<void>;
@@ -79,7 +82,7 @@ const CRMContext = createContext<CRMContextType | undefined>(undefined);
 
 export const CRMProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
-  const { boards, lists, cards, addCard, deleteCard, moveCard, activeWorkspaceId } = useProject();
+  const { boards, lists, cards, addCard, updateCard, deleteCard, moveCard, activeWorkspaceId } = useProject();
 
   const [contacts, setContacts] = useState<CRMContact[]>([]);
   const [leads, setLeads] = useState<CRMLead[]>([]);
@@ -178,6 +181,11 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
   // Bootstrap CRM board if it doesn't exist
   const initCRMBoard = async () => {
     if (!activeWorkspaceId || !user?.id || crmBoardId) return;
+
+    // Verify workspace exists in DB before inserting (prevents FK violation during race conditions)
+    const { data: wsCheck, error: wsErr } = await supabase
+      .from('workspaces').select('id').eq('id', activeWorkspaceId).single();
+    if (wsErr || !wsCheck) throw new Error('Workspace not ready — please refresh the page.');
 
     // Try inserting with board_type (requires migration). Fall back without if column missing.
     let boardId: string | null = null;
@@ -416,11 +424,74 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
     }));
   };
 
+  // ── Bulk Import ────────────────────────────────────────────
+  const bulkImportLeads = async (rows: ImportRow[]): Promise<{ created: number; skipped: number }> => {
+    let created = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      if (!row.name?.trim()) { skipped++; continue; }
+      try {
+        // 1. Find or create contact
+        let contactId: string | undefined;
+        if (row.email?.trim()) {
+          const existing = contacts.find(c => c.email?.toLowerCase() === row.email!.toLowerCase());
+          if (existing) {
+            contactId = existing.id;
+          } else {
+            const { data: nc } = await supabase.from('crm_contacts').insert(toSnake({
+              workspaceId: activeWorkspaceId,
+              name: row.name,
+              email: row.email || undefined,
+              phone: row.phone || undefined,
+              company: row.company || undefined,
+              website: row.website || undefined,
+              tags: [],
+              createdBy: user?.id,
+              createdAt: new Date().toISOString(),
+            })).select('id').single();
+            contactId = nc?.id;
+          }
+        }
+        // 2. Find target list by stage name (default to first list)
+        const targetList = row.stage
+          ? crmLists.find(l => l.name.toLowerCase() === row.stage!.toLowerCase()) ?? crmLists[0]
+          : crmLists[0];
+        if (!targetList) { skipped++; continue; }
+        // 3. Insert card directly (avoid addCard's latent ID re-query)
+        const { data: newCard } = await supabase.from('cards').insert(toSnake({
+          listId: targetList.id,
+          title: row.name,
+          priority: 'medium',
+          status: 'todo',
+          labels: JSON.stringify([]),
+          assignees: JSON.stringify(user?.id ? [user.id] : []),
+          createdAt: new Date().toISOString(),
+        })).select('id').single();
+        if (!newCard?.id) { skipped++; continue; }
+        // 4. Insert crm_lead metadata
+        await supabase.from('crm_leads').insert(toSnake({
+          workspaceId: activeWorkspaceId,
+          cardId: newCard.id,
+          contactId: contactId || undefined,
+          dealValue: row.dealValue ? parseFloat(row.dealValue) || undefined : undefined,
+          currency: row.currency || 'USD',
+          source: row.source || undefined,
+          ownerId: user?.id || undefined,
+          createdAt: new Date().toISOString(),
+        }));
+        created++;
+      } catch { skipped++; }
+    }
+    return { created, skipped };
+  };
+
   return (
     <CRMContext.Provider value={{
       contacts, leads, activities, leadsWithCards,
       crmBoardId, crmLists, migrationNeeded, crmLoading,
       initCRMBoard,
+      updateCard,
+      bulkImportLeads,
       addContact, updateContact, deleteContact,
       addLead, updateLead, deleteLead, moveLeadToStage,
       scheduleMeeting, addFollowUp, addActivity,
