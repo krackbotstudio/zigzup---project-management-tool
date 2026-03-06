@@ -94,7 +94,7 @@ function PipelineColumn({
 
 // ── Main Dashboard ────────────────────────────────────────
 export default function CRMDashboard() {
-  const { leadsWithCards, crmBoardId, crmLists, initCRMBoard, moveLeadToStage, migrationNeeded } = useCRM();
+  const { leadsWithCards, crmBoardId, crmLists, initCRMBoard, moveLeadToStage, migrationNeeded, crmLoading } = useCRM();
   const [initialising, setInitialising] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [leadModal, setLeadModal] = useState<{ open: boolean; listId?: string }>({ open: false });
@@ -116,12 +116,12 @@ export default function CRMDashboard() {
     }
   };
 
-  // Bootstrap CRM board on first visit
+  // Bootstrap CRM board on first visit — wait until CRM load has settled
   useEffect(() => {
-    if (!crmBoardId && !initialising && !migrationNeeded) {
+    if (!crmLoading && !crmBoardId && !initialising && !migrationNeeded) {
       runInit();
     }
-  }, [crmBoardId, migrationNeeded]);
+  }, [crmLoading, crmBoardId, migrationNeeded]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setDraggedCardId(event.active.id as string);
@@ -157,6 +157,18 @@ export default function CRMDashboard() {
           <p>1. Open Supabase Dashboard → SQL Editor</p>
           <p>2. Paste contents of <strong>supabase_migration_crm.sql</strong></p>
           <p>3. Click Run, then refresh this page</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── CRM data still loading ───────────────────────────────
+  if (crmLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Loading CRM…</span>
         </div>
       </div>
     );

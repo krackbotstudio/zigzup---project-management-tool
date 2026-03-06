@@ -57,6 +57,7 @@ interface CRMContextType {
   crmBoardId: string | null;
   crmLists: import('@/types').KanbanList[];
   migrationNeeded: boolean;
+  crmLoading: boolean;
 
   initCRMBoard: () => Promise<void>;
 
@@ -84,6 +85,7 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
   const [leads, setLeads] = useState<CRMLead[]>([]);
   const [activities, setActivities] = useState<CRMActivity[]>([]);
   const [migrationNeeded, setMigrationNeeded] = useState(false);
+  const [crmLoading, setCrmLoading] = useState(true);
 
   // Derived: find CRM board — check boardType first, fall back to name for pre-migration compat
   const crmBoard = boards.find(b =>
@@ -114,6 +116,7 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
     if (!activeWorkspaceId || !user?.id) return;
 
     const load = async () => {
+      setCrmLoading(true);
       const [cRes, lRes, aRes] = await Promise.all([
         supabase.from('crm_contacts').select('*').eq('workspace_id', activeWorkspaceId),
         supabase.from('crm_leads').select('*').eq('workspace_id', activeWorkspaceId),
@@ -124,11 +127,15 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
         r.error?.message?.includes('does not exist') ||
         r.error?.code === '42P01'
       );
-      if (missingTable) { setMigrationNeeded(true); return; }
-      setMigrationNeeded(false);
-      if (cRes.data) setContacts(cRes.data.map(r => toCamel<CRMContact>(r)));
-      if (lRes.data) setLeads(lRes.data.map(r => toCamel<CRMLead>(r)));
-      if (aRes.data) setActivities(aRes.data.map(r => toCamel<CRMActivity>(r)));
+      if (missingTable) {
+        setMigrationNeeded(true);
+      } else {
+        setMigrationNeeded(false);
+        if (cRes.data) setContacts(cRes.data.map(r => toCamel<CRMContact>(r)));
+        if (lRes.data) setLeads(lRes.data.map(r => toCamel<CRMLead>(r)));
+        if (aRes.data) setActivities(aRes.data.map(r => toCamel<CRMActivity>(r)));
+      }
+      setCrmLoading(false);
     };
     load();
 
@@ -412,7 +419,7 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
   return (
     <CRMContext.Provider value={{
       contacts, leads, activities, leadsWithCards,
-      crmBoardId, crmLists, migrationNeeded,
+      crmBoardId, crmLists, migrationNeeded, crmLoading,
       initCRMBoard,
       addContact, updateContact, deleteContact,
       addLead, updateLead, deleteLead, moveLeadToStage,
