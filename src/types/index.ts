@@ -15,6 +15,7 @@ export interface Board {
   name: string;
   createdBy?: string;
   createdAt: string;
+  boardType?: 'project' | 'crm';
 }
 
 export interface KanbanList {
@@ -131,4 +132,55 @@ export interface PipelineStageWithStats extends PipelineStage {
   progressPercent: number;
   status: StageStatus;
   isCurrentUserHere: boolean;
+}
+
+// ============================================================
+// CRM Types
+// ============================================================
+
+export type CRMLeadSource = 'website' | 'referral' | 'cold-call' | 'social' | 'event' | 'other';
+export type CRMActivityType = 'note' | 'call' | 'email' | 'meeting' | 'task' | 'stage_change' | 'campaign';
+
+export interface CRMContact {
+  id: string;
+  workspaceId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  website?: string;
+  notes?: string;
+  tags: string[];
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface CRMLead {
+  id: string;
+  workspaceId: string;
+  cardId: string;
+  contactId?: string;
+  dealValue?: number;
+  currency: string;
+  source?: CRMLeadSource;
+  ownerId?: string;
+  createdAt: string;
+}
+
+export interface CRMLeadWithCard extends CRMLead {
+  card: Card;
+  contact?: CRMContact;
+  currentStage?: string;
+}
+
+export interface CRMActivity {
+  id: string;
+  workspaceId: string;
+  leadId?: string;
+  contactId?: string;
+  type: CRMActivityType;
+  description?: string;
+  metadata: Record<string, any>;
+  createdBy?: string;
+  createdAt: string;
 }

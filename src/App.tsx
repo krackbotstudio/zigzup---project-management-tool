@@ -22,11 +22,15 @@ import Terms from "@/pages/Terms";
 import Contact from "@/pages/Contact";
 import Donate from "@/pages/Donate";
 import InvitePage from "@/pages/InvitePage";
+import CRMDashboard from "@/pages/CRMDashboard";
+import CRMContacts from "@/pages/CRMContacts";
+import CRMLeadDetail from "@/pages/CRMLeadDetail";
 
 import { ProjectProvider } from "./context/ProjectContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { SettingsProvider } from "./context/SettingsContext";
+import { CRMProvider } from "./context/CRMContext";
 
 const queryClient = new QueryClient();
 
@@ -56,6 +60,7 @@ const App = () => (
     <AuthProvider>
       <SettingsProvider>
         <ProjectProvider>
+          <CRMProvider>
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
               <Toaster />
@@ -87,6 +92,9 @@ const App = () => (
                     <Route path="/ai-assistant" element={<AIAssistant />} />
                     <Route path="/automations" element={<Automations />} />
                     <Route path="/demo-recorder" element={<DemoRecorder />} />
+                    <Route path="/crm" element={<CRMDashboard />} />
+                    <Route path="/crm/contacts" element={<CRMContacts />} />
+                    <Route path="/crm/lead/:leadId" element={<CRMLeadDetail />} />
                   </Route>
 
                   <Route path="*" element={<NotFound />} />
@@ -94,6 +102,7 @@ const App = () => (
               </BrowserRouter>
             </TooltipProvider>
           </QueryClientProvider>
+          </CRMProvider>
         </ProjectProvider>
       </SettingsProvider>
     </AuthProvider>

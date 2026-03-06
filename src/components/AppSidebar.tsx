@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Kanban, Calendar, Bell, Settings, ChevronDown,
-  Plus, Search, Zap, FolderKanban, Sparkles, LogOut, Video, Trash2, Crown, Edit2, Check, X
+  Plus, Search, Zap, FolderKanban, Sparkles, LogOut, Video, Trash2, Crown, Edit2, Check, X,
+  GitBranch, Users,
 } from 'lucide-react';
 import { useProject } from '@/context/ProjectContext';
 import { useAuth } from '@/context/AuthContext';
@@ -289,13 +290,42 @@ export function AppSidebar() {
           <Video className="w-4 h-4 text-rose-400" /> Demo Recorder
         </Link>
 
+        {/* CRM */}
+        <div className="pt-4 pb-1">
+          <span className="px-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+            CRM
+          </span>
+        </div>
+        <Link
+          to="/crm"
+          className={cn(
+            "flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors w-full",
+            location.pathname === '/crm'
+              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+              : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+          )}
+        >
+          <GitBranch className="w-4 h-4 text-primary" /> Pipeline
+        </Link>
+        <Link
+          to="/crm/contacts"
+          className={cn(
+            "flex items-center gap-2.5 px-2 py-1.5 rounded-md text-sm transition-colors w-full",
+            location.pathname === '/crm/contacts'
+              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+              : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+          )}
+        >
+          <Users className="w-4 h-4 text-primary/80" /> Contacts
+        </Link>
+
         {/* Boards */}
         <div className="pt-4 pb-1">
           <span className="px-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/50">
             Boards
           </span>
         </div>
-        {boards.filter(b => b.workspaceId === activeWorkspaceId).map(board => (
+        {boards.filter(b => b.workspaceId === activeWorkspaceId && b.boardType !== 'crm').map(board => (
           <Link
             key={board.id}
             to={`/board/${board.id}`}
