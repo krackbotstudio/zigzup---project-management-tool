@@ -56,6 +56,7 @@ interface CRMContextType {
   leadsWithCards: CRMLeadWithCard[];
   crmBoardId: string | null;
   crmLists: import('@/types').KanbanList[];
+  migrationNeeded: boolean;
 
   initCRMBoard: () => Promise<void>;
 
@@ -82,9 +83,13 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
   const [contacts, setContacts] = useState<CRMContact[]>([]);
   const [leads, setLeads] = useState<CRMLead[]>([]);
   const [activities, setActivities] = useState<CRMActivity[]>([]);
+  const [migrationNeeded, setMigrationNeeded] = useState(false);
 
-  // Derived: find CRM board + its lists in the active workspace
-  const crmBoard = boards.find(b => b.workspaceId === activeWorkspaceId && b.boardType === 'crm');
+  // Derived: find CRM board — check boardType first, fall back to name for pre-migration compat
+  const crmBoard = boards.find(b =>
+    b.workspaceId === activeWorkspaceId &&
+    (b.boardType === 'crm' || b.name === 'Sales CRM')
+  );
   const crmBoardId = crmBoard?.id ?? null;
   const crmLists = lists
     .filter(l => crmBoardId && l.boardId === crmBoardId)
@@ -114,6 +119,13 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
         supabase.from('crm_leads').select('*').eq('workspace_id', activeWorkspaceId),
         supabase.from('crm_activities').select('*').eq('workspace_id', activeWorkspaceId),
       ]);
+      // Detect if CRM tables haven't been created yet (migration not run)
+      const missingTable = [cRes, lRes, aRes].some(r =>
+        r.error?.message?.includes('does not exist') ||
+        r.error?.code === '42P01'
+      );
+      if (missingTable) { setMigrationNeeded(true); return; }
+      setMigrationNeeded(false);
       if (cRes.data) setContacts(cRes.data.map(r => toCamel<CRMContact>(r)));
       if (lRes.data) setLeads(lRes.data.map(r => toCamel<CRMLead>(r)));
       if (aRes.data) setActivities(aRes.data.map(r => toCamel<CRMActivity>(r)));
@@ -159,21 +171,39 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
   // Bootstrap CRM board if it doesn't exist
   const initCRMBoard = async () => {
     if (!activeWorkspaceId || !user?.id || crmBoardId) return;
-    const { data: bd } = await supabase.from('boards').insert(toSnake({
-      workspaceId: activeWorkspaceId,
+
+    // Try inserting with board_type (requires migration). Fall back without if column missing.
+    let boardId: string | null = null;
+    const { data: bd, error: bdErr } = await supabase.from('boards').insert({
+      workspace_id: activeWorkspaceId,
       name: 'Sales CRM',
-      boardType: 'crm',
-      createdBy: user.id,
-      createdAt: new Date().toISOString(),
-    })).select('id').single();
-    if (!bd?.id) return;
+      board_type: 'crm',
+      created_at: new Date().toISOString(),
+    }).select('id').single();
+
+    if (bdErr) {
+      // Column may not exist yet — try without board_type
+      const { data: bd2, error: bd2Err } = await supabase.from('boards').insert({
+        workspace_id: activeWorkspaceId,
+        name: 'Sales CRM',
+        created_at: new Date().toISOString(),
+      }).select('id').single();
+      if (bd2Err) throw new Error(bd2Err.message);
+      boardId = bd2?.id ?? null;
+    } else {
+      boardId = bd?.id ?? null;
+    }
+
+    if (!boardId) throw new Error('Board creation returned no ID');
+
     for (let i = 0; i < CRM_STAGE_NAMES.length; i++) {
-      await supabase.from('lists').insert(toSnake({
-        boardId: bd.id,
+      const { error: listErr } = await supabase.from('lists').insert({
+        board_id: boardId,
         name: CRM_STAGE_NAMES[i],
         position: i,
-        createdAt: new Date().toISOString(),
-      }));
+        created_at: new Date().toISOString(),
+      });
+      if (listErr) console.error('Failed to create stage list:', listErr.message);
     }
   };
 
@@ -382,7 +412,7 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
   return (
     <CRMContext.Provider value={{
       contacts, leads, activities, leadsWithCards,
-      crmBoardId, crmLists,
+      crmBoardId, crmLists, migrationNeeded,
       initCRMBoard,
       addContact, updateContact, deleteContact,
       addLead, updateLead, deleteLead, moveLeadToStage,

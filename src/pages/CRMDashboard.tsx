@@ -3,8 +3,9 @@ import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useDroppable, useSensor, useSensors,
 } from '@dnd-kit/core';
-import { Plus, Users, Sparkles, GitBranch, Loader2 } from 'lucide-react';
+import { Plus, Users, GitBranch, Loader2, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import { useCRM } from '@/context/CRMContext';
 import { CRMLeadWithCard, KanbanList } from '@/types';
 import { LeadCard } from '@/components/crm/LeadCard';
@@ -93,20 +94,34 @@ function PipelineColumn({
 
 // ── Main Dashboard ────────────────────────────────────────
 export default function CRMDashboard() {
-  const { leadsWithCards, crmBoardId, crmLists, initCRMBoard, moveLeadToStage } = useCRM();
+  const { leadsWithCards, crmBoardId, crmLists, initCRMBoard, moveLeadToStage, migrationNeeded } = useCRM();
   const [initialising, setInitialising] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   const [leadModal, setLeadModal] = useState<{ open: boolean; listId?: string }>({ open: false });
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
+  const runInit = async () => {
+    setInitialising(true);
+    setInitError(null);
+    try {
+      await initCRMBoard();
+    } catch (err: any) {
+      const msg = err.message ?? 'Unknown error';
+      setInitError(msg);
+      toast.error('CRM setup failed', { description: msg });
+    } finally {
+      setInitialising(false);
+    }
+  };
+
   // Bootstrap CRM board on first visit
   useEffect(() => {
-    if (!crmBoardId && !initialising) {
-      setInitialising(true);
-      initCRMBoard().finally(() => setInitialising(false));
+    if (!crmBoardId && !initialising && !migrationNeeded) {
+      runInit();
     }
-  }, [crmBoardId]);
+  }, [crmBoardId, migrationNeeded]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setDraggedCardId(event.active.id as string);
@@ -126,6 +141,26 @@ export default function CRMDashboard() {
   };
 
   const draggedLead = draggedCardId ? leadsWithCards.find(l => l.card.id === draggedCardId) : null;
+
+  // ── Migration needed banner ──────────────────────────────
+  if (migrationNeeded) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+          <AlertTriangle className="w-7 h-7 text-amber-500" />
+        </div>
+        <h2 className="text-xl font-bold">Database migration required</h2>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          The CRM module needs new database tables. Run <strong>supabase_migration_crm.sql</strong> in your Supabase SQL Editor to enable it.
+        </p>
+        <div className="flex flex-col gap-2 items-center text-sm text-muted-foreground bg-muted/30 rounded-xl px-5 py-4 border border-border font-mono text-xs max-w-sm w-full text-left">
+          <p>1. Open Supabase Dashboard → SQL Editor</p>
+          <p>2. Paste contents of <strong>supabase_migration_crm.sql</strong></p>
+          <p>3. Click Run, then refresh this page</p>
+        </div>
+      </div>
+    );
+  }
 
   // ── Empty state ─────────────────────────────────────────
   if (initialising) {
@@ -149,8 +184,16 @@ export default function CRMDashboard() {
         <p className="text-muted-foreground text-sm text-center max-w-xs">
           Set up your sales pipeline to start tracking leads, deals, and customer relationships.
         </p>
-        <Button onClick={async () => { setInitialising(true); await initCRMBoard(); setInitialising(false); }}>
-          <Plus className="w-4 h-4 mr-1.5" /> Initialize CRM Pipeline
+        {initError && (
+          <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg max-w-sm text-center">
+            {initError}
+          </p>
+        )}
+        <Button onClick={runInit} disabled={initialising}>
+          {initialising
+            ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Setting up…</>
+            : <><Plus className="w-4 h-4 mr-1.5" /> Initialize CRM Pipeline</>
+          }
         </Button>
       </div>
     );
