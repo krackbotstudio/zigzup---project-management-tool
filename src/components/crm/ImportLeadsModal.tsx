@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Upload, Link2, FileSpreadsheet, X, ChevronRight, Loader2, CheckCircle2 } from 'lucide-react';
+import { Upload, Link2, FileSpreadsheet, ChevronRight, Loader2, CheckCircle2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,20 +30,17 @@ function parseCSV(text: string): string[][] {
   return rows.filter(r => r.some(f => f !== ''));
 }
 
-// ── Sheet parser (returns header + data rows) ─────────────
 function sheetToRows(sheet: XLSX.WorkSheet): string[][] {
   const json: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  return json.filter((r: string[]) => r.some(c => String(c) !== ''));
+  return (json as string[][]).filter(r => r.some(c => String(c) !== ''));
 }
 
-// ── Google Sheets URL → gviz CSV ─────────────────────────
 function toGvizUrl(url: string): string | null {
   const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (!m) return null;
   return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv`;
 }
 
-// ── CRM field options for mapping ─────────────────────────
 const CRM_FIELDS = [
   { value: '',           label: '— Skip —' },
   { value: 'name',       label: 'Name *' },
@@ -57,56 +54,59 @@ const CRM_FIELDS = [
   { value: 'currency',   label: 'Currency' },
 ];
 
-type Step = 'source' | 'preview' | 'mapping' | 'done';
-type SourceType = 'csv' | 'excel' | 'sheets';
+// Column-name aliases for auto-guessing the mapping
+const ALIASES: Record<string, string> = {
+  name: 'name', 'full name': 'name', 'first name': 'name', fullname: 'name',
+  title: 'name', 'business name': 'name', 'company name': 'company',
+  email: 'email', 'e-mail': 'email', 'email address': 'email',
+  phone: 'phone', 'phone number': 'phone', mobile: 'phone', tel: 'phone',
+  company: 'company', organization: 'company', org: 'company',
+  website: 'website', url: 'website', 'web site': 'website',
+  'deal value': 'dealValue', value: 'dealValue', amount: 'dealValue', revenue: 'dealValue',
+  stage: 'stage', status: 'stage',
+  source: 'source', 'lead source': 'source',
+  currency: 'currency',
+};
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
-}
+type Step = 'source' | 'preview' | 'mapping' | 'done';
+
+// Step breadcrumb labels
+const STEP_LABELS: Step[] = ['source', 'preview', 'mapping', 'done'];
+const STEP_DISPLAY: Record<Step, string> = {
+  source: 'Source', preview: 'Preview', mapping: 'Map Fields', done: 'Done',
+};
+
+interface Props { open: boolean; onClose: () => void; }
 
 export function ImportLeadsModal({ open, onClose }: Props) {
   const { bulkImportLeads } = useCRM();
 
   const [step, setStep]           = useState<Step>('source');
-  const [sourceType, setSourceType] = useState<SourceType | null>(null);
   const [sheetsUrl, setSheetsUrl] = useState('');
   const [headers, setHeaders]     = useState<string[]>([]);
   const [dataRows, setDataRows]   = useState<string[][]>([]);
-  const [mapping, setMapping]     = useState<Record<number, string>>({});  // col idx → crmField
+  const [mapping, setMapping]     = useState<Record<number, string>>({});
   const [loading, setLoading]     = useState(false);
   const [result, setResult]       = useState<{ created: number; skipped: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reset = () => {
-    setStep('source'); setSourceType(null); setSheetsUrl('');
-    setHeaders([]); setDataRows([]); setMapping({}); setResult(null);
+    setStep('source'); setSheetsUrl('');
+    setHeaders([]); setDataRows([]); setMapping([]); setResult(null);
   };
   const close = () => { reset(); onClose(); };
 
-  // Auto-guess field mapping from header names
   const guessMapping = (hdrs: string[]): Record<number, string> => {
     const map: Record<number, string> = {};
-    const aliases: Record<string, string> = {
-      name: 'name', 'full name': 'name', 'first name': 'name', fullname: 'name',
-      email: 'email', 'e-mail': 'email', 'email address': 'email',
-      phone: 'phone', 'phone number': 'phone', mobile: 'phone', tel: 'phone',
-      company: 'company', 'company name': 'company', organization: 'company', org: 'company',
-      website: 'website', url: 'website', 'web site': 'website',
-      'deal value': 'dealValue', value: 'dealValue', amount: 'dealValue', revenue: 'dealValue',
-      stage: 'stage', status: 'stage',
-      source: 'source', 'lead source': 'source',
-      currency: 'currency',
-    };
     hdrs.forEach((h, i) => {
       const key = h.toLowerCase().trim();
-      if (aliases[key]) map[i] = aliases[key];
+      if (ALIASES[key]) map[i] = ALIASES[key];
     });
     return map;
   };
 
   const loadData = (rows: string[][]) => {
-    if (rows.length < 2) { toast.error('File appears empty or has only headers'); return; }
+    if (rows.length < 2) { toast.error('File appears empty or has no data rows'); return; }
     const hdrs = rows[0].map(h => String(h));
     const data = rows.slice(1);
     setHeaders(hdrs);
@@ -115,15 +115,10 @@ export function ImportLeadsModal({ open, onClose }: Props) {
     setStep('preview');
   };
 
-  // ── File handlers ─────────────────────────────────────
   const handleCSV = (file: File) => {
     setLoading(true);
     const reader = new FileReader();
-    reader.onload = e => {
-      const text = e.target?.result as string;
-      loadData(parseCSV(text));
-      setLoading(false);
-    };
+    reader.onload = e => { loadData(parseCSV(e.target?.result as string)); setLoading(false); };
     reader.readAsText(file);
   };
 
@@ -131,10 +126,8 @@ export function ImportLeadsModal({ open, onClose }: Props) {
     setLoading(true);
     const reader = new FileReader();
     reader.onload = e => {
-      const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const wb = XLSX.read(data, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      loadData(sheetToRows(ws));
+      const wb = XLSX.read(new Uint8Array(e.target?.result as ArrayBuffer), { type: 'array' });
+      loadData(sheetToRows(wb.Sheets[wb.SheetNames[0]]));
       setLoading(false);
     };
     reader.readAsArrayBuffer(file);
@@ -146,34 +139,26 @@ export function ImportLeadsModal({ open, onClose }: Props) {
     setLoading(true);
     try {
       const res = await fetch(gviz);
-      if (!res.ok) throw new Error('Could not fetch. Make sure the sheet is public (Anyone with the link → Viewer).');
-      const text = await res.text();
-      loadData(parseCSV(text));
+      if (!res.ok) throw new Error('Could not fetch. Make sure the sheet is publicly shared (Anyone with link → Viewer).');
+      loadData(parseCSV(await res.text()));
     } catch (err: any) {
       toast.error('Google Sheets fetch failed', { description: err.message });
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const handleFile = (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext === 'csv' || file.type === 'text/csv') {
-      setSourceType('csv'); handleCSV(file);
-    } else if (ext === 'xlsx' || ext === 'xls' || file.type.includes('spreadsheet')) {
-      setSourceType('excel'); handleExcel(file);
-    } else {
-      toast.error('Unsupported file type. Upload a .csv or .xlsx/.xls file.');
-    }
+    if (ext === 'csv' || file.type === 'text/csv') handleCSV(file);
+    else if (ext === 'xlsx' || ext === 'xls' || file.type.includes('spreadsheet')) handleExcel(file);
+    else toast.error('Unsupported file type. Upload a .csv or .xlsx/.xls file.');
   };
 
-  // ── Run import ─────────────────────────────────────────
   const runImport = async () => {
     setLoading(true);
     const rows: ImportRow[] = dataRows.map(row => {
       const obj: ImportRow = {};
-      Object.entries(mapping).forEach(([colIdx, field]) => {
-        if (field) obj[field] = String(row[Number(colIdx)] ?? '').trim() || undefined;
+      Object.entries(mapping).forEach(([ci, field]) => {
+        if (field) obj[field] = String(row[Number(ci)] ?? '').trim() || undefined;
       });
       return obj;
     });
@@ -184,170 +169,227 @@ export function ImportLeadsModal({ open, onClose }: Props) {
       toast.success(`Imported ${res.created} lead${res.created !== 1 ? 's' : ''}`);
     } catch (err: any) {
       toast.error('Import failed', { description: err.message });
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
+
+  const hasNameMapped = Object.values(mapping).includes('name');
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) close(); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-primary" />
-            Import Leads
-          </DialogTitle>
-        </DialogHeader>
+      {/*
+        Flex column with capped height so footer buttons are always visible.
+        The body section gets flex-1 + overflow-y-auto to scroll internally.
+      */}
+      <DialogContent className="max-w-2xl flex flex-col gap-0 max-h-[85vh] p-0 overflow-hidden">
+        {/* ── Fixed header ─────────────────────────────── */}
+        <div className="flex flex-col gap-3 px-6 pt-6 pb-4 border-b border-border shrink-0">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-primary" />
+              Import Leads
+            </DialogTitle>
+          </DialogHeader>
 
-        {/* ── Step: Source ── */}
-        {step === 'source' && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Choose your data source:</p>
-
-            {/* File drop zone */}
-            <div
-              className="border-2 border-dashed border-border rounded-xl p-8 flex flex-col items-center gap-3 hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
-              onClick={() => fileRef.current?.click()}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-            >
-              <Upload className="w-8 h-8 text-muted-foreground" />
-              <div className="text-center">
-                <p className="text-sm font-medium">Drop your file here or click to browse</p>
-                <p className="text-xs text-muted-foreground mt-1">Supports CSV, Excel (.xlsx, .xls)</p>
-              </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
-              />
-            </div>
-
-            {/* Google Sheets */}
-            <div className="border border-border rounded-xl p-4 space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Link2 className="w-4 h-4 text-primary" />
-                Import from Google Sheets URL
-              </div>
-              <p className="text-xs text-muted-foreground">Paste a public sheet URL (File → Share → Anyone with the link)</p>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="https://docs.google.com/spreadsheets/d/..."
-                  value={sheetsUrl}
-                  onChange={e => setSheetsUrl(e.target.value)}
-                  className="text-xs h-8"
-                />
-                <Button size="sm" onClick={handleSheetsUrl} disabled={!sheetsUrl.trim() || loading} className="h-8 shrink-0">
-                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Fetch'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step: Preview ── */}
-        {step === 'preview' && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">{dataRows.length} rows found. Showing first 5:</p>
-            <div className="overflow-auto rounded-lg border border-border max-h-48">
-              <table className="w-full text-xs">
-                <thead className="bg-muted/50 sticky top-0">
-                  <tr>
-                    {headers.map((h, i) => (
-                      <th key={i} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/30">
-                  {dataRows.slice(0, 5).map((row, ri) => (
-                    <tr key={ri} className="hover:bg-muted/20">
-                      {row.map((cell, ci) => (
-                        <td key={ci} className="px-3 py-1.5 truncate max-w-[120px]">{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={reset}>Back</Button>
-              <Button size="sm" onClick={() => setStep('mapping')}>
-                Map Fields <ChevronRight className="w-3.5 h-3.5 ml-1" />
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step: Field mapping ── */}
-        {step === 'mapping' && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Map your columns to CRM fields. Fields marked <span className="text-destructive">*</span> are required.
-            </p>
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {headers.map((h, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground w-40 truncate shrink-0" title={h}>{h}</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  <select
-                    value={mapping[i] ?? ''}
-                    onChange={e => setMapping(prev => ({ ...prev, [i]: e.target.value }))}
-                    className="flex-1 text-xs bg-background border border-border rounded-md px-2 py-1.5 outline-none focus:border-primary"
-                  >
-                    {CRM_FIELDS.map(f => (
-                      <option key={f.value} value={f.value}>{f.label}</option>
-                    ))}
-                  </select>
-                  {/* Preview value */}
-                  <span className="text-[11px] text-muted-foreground/60 w-32 truncate shrink-0">
-                    e.g. {dataRows[0]?.[i] ?? ''}
+          {/* Step breadcrumb */}
+          {step !== 'done' && (
+            <div className="flex items-center gap-1.5">
+              {STEP_LABELS.filter(s => s !== 'done').map((s, i, arr) => (
+                <div key={s} className="flex items-center gap-1.5">
+                  <span className={cn(
+                    'text-xs font-medium',
+                    step === s ? 'text-primary' : 'text-muted-foreground/50'
+                  )}>
+                    {STEP_DISPLAY[s]}
                   </span>
+                  {i < arr.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground/30" />}
                 </div>
               ))}
             </div>
+          )}
+        </div>
 
-            <div className="flex justify-between items-center pt-1">
-              <span className="text-xs text-muted-foreground">{dataRows.length} rows to import</span>
-              <div className="flex gap-2">
+        {/* ── Scrollable body ───────────────────────────── */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 min-h-0">
+
+          {/* Step: Source */}
+          {step === 'source' && (
+            <div className="space-y-4">
+              {/* File drop zone */}
+              <div
+                className="border-2 border-dashed border-border rounded-xl p-8 flex flex-col items-center gap-3 hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
+                onClick={() => fileRef.current?.click()}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+              >
+                {loading
+                  ? <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  : <Upload className="w-8 h-8 text-muted-foreground" />}
+                <div className="text-center">
+                  <p className="text-sm font-medium">{loading ? 'Parsing file…' : 'Drop your file here or click to browse'}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Supports CSV, Excel (.xlsx, .xls)</p>
+                </div>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+                />
+              </div>
+
+              {/* Google Sheets */}
+              <div className="border border-border rounded-xl p-4 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Link2 className="w-4 h-4 text-primary" />
+                  Import from Google Sheets
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Paste a public sheet URL (File → Share → Anyone with the link → Viewer)
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                    value={sheetsUrl}
+                    onChange={e => setSheetsUrl(e.target.value)}
+                    className="text-xs h-8"
+                    onKeyDown={e => { if (e.key === 'Enter') handleSheetsUrl(); }}
+                  />
+                  <Button size="sm" onClick={handleSheetsUrl} disabled={!sheetsUrl.trim() || loading} className="h-8 shrink-0">
+                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Fetch'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step: Preview */}
+          {step === 'preview' && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold text-foreground">{dataRows.length} rows</span> detected.
+                Showing first 5 — proceed to map columns to CRM fields.
+              </p>
+              <div className="overflow-auto rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/60 sticky top-0">
+                    <tr>
+                      {headers.map((h, i) => (
+                        <th key={i} className="px-3 py-2 text-left font-semibold whitespace-nowrap border-b border-border">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/30">
+                    {dataRows.slice(0, 5).map((row, ri) => (
+                      <tr key={ri} className="hover:bg-muted/20">
+                        {row.map((cell, ci) => (
+                          <td key={ci} className="px-3 py-2 whitespace-nowrap max-w-[160px] truncate" title={cell}>
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Step: Mapping */}
+          {step === 'mapping' && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Map your columns to CRM fields. At minimum, map the <span className="font-semibold text-foreground">Name</span> column.
+              </p>
+              <div className="space-y-2">
+                {headers.map((h, i) => (
+                  <div key={i} className="flex items-center gap-3 py-1.5 border-b border-border/30 last:border-0">
+                    <div className="w-40 shrink-0">
+                      <p className="text-xs font-medium text-foreground truncate" title={h}>{h}</p>
+                      <p className="text-[10px] text-muted-foreground/60 truncate">e.g. {String(dataRows[0]?.[i] ?? '')}</p>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+                    <select
+                      value={mapping[i] ?? ''}
+                      onChange={e => setMapping(prev => ({ ...prev, [i]: e.target.value }))}
+                      className={cn(
+                        'flex-1 text-xs bg-background border rounded-md px-2 py-1.5 outline-none transition-colors',
+                        mapping[i] ? 'border-primary/60 text-foreground' : 'border-border text-muted-foreground'
+                      )}
+                    >
+                      {CRM_FIELDS.map(f => (
+                        <option key={f.value} value={f.value}>{f.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Step: Done */}
+          {step === 'done' && result && (
+            <div className="flex flex-col items-center gap-4 py-8 text-center">
+              <CheckCircle2 className="w-14 h-14 text-emerald-500" />
+              <div>
+                <p className="text-xl font-bold">{result.created} leads imported!</p>
+                {result.skipped > 0 && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {result.skipped} rows skipped (missing name or invalid data)
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Fixed footer ─────────────────────────────── */}
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-t border-border bg-muted/20">
+          {/* Left side info */}
+          <div className="text-xs text-muted-foreground">
+            {step === 'preview' && `${dataRows.length} rows ready`}
+            {step === 'mapping' && !hasNameMapped && (
+              <span className="text-destructive">Map the "Name" field to continue</span>
+            )}
+            {step === 'mapping' && hasNameMapped && `${dataRows.length} rows will be imported`}
+          </div>
+
+          {/* Right side actions */}
+          <div className="flex items-center gap-2">
+            {step === 'source' && (
+              <Button variant="outline" size="sm" onClick={close}>Cancel</Button>
+            )}
+            {step === 'preview' && (
+              <>
+                <Button variant="outline" size="sm" onClick={reset}>Back</Button>
+                <Button size="sm" onClick={() => setStep('mapping')}>
+                  Map Fields <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                </Button>
+              </>
+            )}
+            {step === 'mapping' && (
+              <>
                 <Button variant="outline" size="sm" onClick={() => setStep('preview')}>Back</Button>
                 <Button
                   size="sm"
                   onClick={runImport}
-                  disabled={loading || !Object.values(mapping).includes('name')}
+                  disabled={loading || !hasNameMapped}
                 >
                   {loading
-                    ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Importing…</>
-                    : `Import ${dataRows.length} leads`
-                  }
+                    ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Importing…</>
+                    : `Import ${dataRows.length} leads`}
                 </Button>
-              </div>
-            </div>
-            {!Object.values(mapping).includes('name') && (
-              <p className="text-xs text-destructive">Please map at least the "Name" field to proceed.</p>
+              </>
+            )}
+            {step === 'done' && (
+              <>
+                <Button variant="outline" size="sm" onClick={reset}>Import more</Button>
+                <Button size="sm" onClick={close}>Done</Button>
+              </>
             )}
           </div>
-        )}
-
-        {/* ── Step: Done ── */}
-        {step === 'done' && result && (
-          <div className="flex flex-col items-center gap-4 py-6 text-center">
-            <CheckCircle2 className="w-12 h-12 text-emerald-500" />
-            <div>
-              <p className="text-lg font-bold">{result.created} leads imported!</p>
-              {result.skipped > 0 && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  {result.skipped} rows skipped (missing name or invalid data)
-                </p>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={reset}>Import more</Button>
-              <Button size="sm" onClick={close}>Done</Button>
-            </div>
-          </div>
-        )}
+        </div>
       </DialogContent>
     </Dialog>
   );
