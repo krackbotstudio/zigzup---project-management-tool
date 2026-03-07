@@ -41,6 +41,10 @@ interface ScheduleMeetingData {
   title: string;
   date: string;
   notes?: string;
+  meetType?: 'virtual' | 'in-person' | 'phone';
+  location?: string;   // address for in-person, phone number for phone call
+  meetLink?: string;   // Jitsi / custom URL for virtual
+  duration?: number;   // minutes
 }
 
 interface AddFollowUpData {
@@ -76,6 +80,8 @@ interface CRMContextType {
   scheduleMeeting: (data: ScheduleMeetingData) => Promise<void>;
   addFollowUp: (data: AddFollowUpData) => Promise<void>;
   addActivity: (data: Omit<CRMActivity, 'id' | 'createdAt' | 'workspaceId'>) => Promise<void>;
+  updateActivity: (id: string, updates: { description?: string; metadata?: Record<string, unknown> }) => Promise<void>;
+  deleteActivity: (id: string) => Promise<void>;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
@@ -125,10 +131,14 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
         supabase.from('crm_leads').select('*').eq('workspace_id', activeWorkspaceId),
         supabase.from('crm_activities').select('*').eq('workspace_id', activeWorkspaceId),
       ]);
-      // Detect if CRM tables haven't been created yet (migration not run)
+      // Detect if CRM tables haven't been created yet (migration not run).
+      // PostgREST returns 404 + "schema cache" message; Postgres returns code 42P01.
       const missingTable = [cRes, lRes, aRes].some(r =>
         r.error?.message?.includes('does not exist') ||
-        r.error?.code === '42P01'
+        r.error?.message?.includes('schema cache') ||
+        r.error?.message?.includes('Could not find') ||
+        r.error?.code === '42P01' ||
+        (r as any).status === 404
       );
       if (missingTable) {
         setMigrationNeeded(true);
@@ -381,7 +391,15 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
       leadId: data.leadId,
       type: 'meeting',
       description: data.title,
-      metadata: { card_id: cardRow?.id, date: data.date, notes: data.notes },
+      metadata: {
+        card_id:   cardRow?.id,
+        date:      data.date,
+        notes:     data.notes,
+        meet_type: data.meetType ?? 'virtual',
+        location:  data.location,
+        meet_link: data.meetLink,
+        duration:  data.duration ?? 60,
+      },
       createdBy: user?.id,
       createdAt: new Date().toISOString(),
     }));
@@ -424,52 +442,94 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
     }));
   };
 
+  const updateActivity = async (id: string, updates: { description?: string; metadata?: Record<string, unknown> }) => {
+    const patch: Record<string, unknown> = {};
+    if (updates.description !== undefined) patch.description = updates.description;
+    if (updates.metadata    !== undefined) patch.metadata    = updates.metadata;
+    await supabase.from('crm_activities').update(patch).eq('id', id);
+    setActivities(prev => prev.map(a =>
+      a.id === id ? { ...a, ...updates } : a
+    ));
+  };
+
+  const deleteActivity = async (id: string) => {
+    await supabase.from('crm_activities').delete().eq('id', id);
+    setActivities(prev => prev.filter(a => a.id !== id));
+  };
+
   // ── Bulk Import ────────────────────────────────────────────
   const bulkImportLeads = async (rows: ImportRow[]): Promise<{ created: number; skipped: number }> => {
     let created = 0;
     let skipped = 0;
+
     for (const row of rows) {
       if (!row.name?.trim()) { skipped++; continue; }
       try {
-        // 1. Find or create contact
+        // Build a structured notes string from address + rating + extra notes
+        const notesParts: string[] = [];
+        const addressParts = [row.street, row.city, row.state, row.zip, row.country].filter(Boolean);
+        if (addressParts.length) notesParts.push(`Address: ${addressParts.join(', ')}`);
+        if (row.rating)       notesParts.push(`Rating: ${row.rating}`);
+        if (row.reviewsCount) notesParts.push(`Reviews: ${row.reviewsCount}`);
+        if (row.notes)        notesParts.push(row.notes);
+        const combinedNotes = notesParts.join('\n') || undefined;
+
+        // Parse tags from comma-separated string
+        const parsedTags = row.tags
+          ? row.tags.split(',').map(t => t.trim()).filter(Boolean)
+          : [];
+
+        // 1. Find or create contact (match by email if provided, else always create)
         let contactId: string | undefined;
-        if (row.email?.trim()) {
-          const existing = contacts.find(c => c.email?.toLowerCase() === row.email!.toLowerCase());
+        const hasContactData = !!(row.email || row.phone || row.company || row.website || addressParts.length || parsedTags.length || combinedNotes);
+
+        if (hasContactData) {
+          const existing = row.email
+            ? contacts.find(c => c.email?.toLowerCase() === row.email!.toLowerCase().trim())
+            : undefined;
+
           if (existing) {
             contactId = existing.id;
           } else {
             const { data: nc } = await supabase.from('crm_contacts').insert(toSnake({
               workspaceId: activeWorkspaceId,
-              name: row.name,
-              email: row.email || undefined,
-              phone: row.phone || undefined,
-              company: row.company || undefined,
-              website: row.website || undefined,
-              tags: [],
+              name: row.name.trim(),
+              email: row.email?.trim() || undefined,
+              phone: row.phone?.trim() || undefined,
+              company: row.company?.trim() || undefined,
+              website: row.website?.trim() || undefined,
+              notes: combinedNotes,
+              tags: parsedTags,
               createdBy: user?.id,
               createdAt: new Date().toISOString(),
             })).select('id').single();
             contactId = nc?.id;
           }
         }
+
         // 2. Find target list by stage name (default to first list)
         const targetList = row.stage
-          ? crmLists.find(l => l.name.toLowerCase() === row.stage!.toLowerCase()) ?? crmLists[0]
+          ? crmLists.find(l => l.name.toLowerCase() === row.stage!.toLowerCase().trim()) ?? crmLists[0]
           : crmLists[0];
         if (!targetList) { skipped++; continue; }
-        // 3. Insert card directly (avoid addCard's latent ID re-query)
-        const { data: newCard } = await supabase.from('cards').insert(toSnake({
-          listId: targetList.id,
-          title: row.name,
+
+        // 3. Insert card — pass arrays directly, NOT JSON.stringify (JSONB columns need real values)
+        const { data: newCard, error: cardErr } = await supabase.from('cards').insert({
+          list_id: targetList.id,
+          title: row.name.trim(),
           priority: 'medium',
           status: 'todo',
-          labels: JSON.stringify([]),
-          assignees: JSON.stringify(user?.id ? [user.id] : []),
-          createdAt: new Date().toISOString(),
-        })).select('id').single();
-        if (!newCard?.id) { skipped++; continue; }
+          labels: [],
+          assignees: user?.id ? [user.id] : [],
+          created_at: new Date().toISOString(),
+        }).select('id').single();
+        if (cardErr || !newCard?.id) {
+          console.error('Card insert failed:', cardErr?.message);
+          skipped++; continue;
+        }
+
         // 4. Insert crm_lead metadata
-        await supabase.from('crm_leads').insert(toSnake({
+        const { error: leadErr } = await supabase.from('crm_leads').insert(toSnake({
           workspaceId: activeWorkspaceId,
           cardId: newCard.id,
           contactId: contactId || undefined,
@@ -479,8 +539,16 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
           ownerId: user?.id || undefined,
           createdAt: new Date().toISOString(),
         }));
+        if (leadErr) {
+          console.error('Lead insert failed:', leadErr.message);
+          skipped++; continue;
+        }
+
         created++;
-      } catch { skipped++; }
+      } catch (err: any) {
+        console.error('Bulk import row error:', err?.message ?? err);
+        skipped++;
+      }
     }
     return { created, skipped };
   };
@@ -494,7 +562,7 @@ export const CRMProvider = ({ children }: { children: ReactNode }) => {
       bulkImportLeads,
       addContact, updateContact, deleteContact,
       addLead, updateLead, deleteLead, moveLeadToStage,
-      scheduleMeeting, addFollowUp, addActivity,
+      scheduleMeeting, addFollowUp, addActivity, updateActivity, deleteActivity,
     }}>
       {children}
     </CRMContext.Provider>

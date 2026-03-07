@@ -197,5 +197,18 @@ export interface ImportRow {
   stage?: string;
   source?: string;
   currency?: string;
+  // Address fields — assembled into notes on import
+  street?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  zip?: string;
+  // Extra metadata — appended to notes
+  rating?: string;
+  reviewsCount?: string;
+  // Tags — comma-separated string → contact tags array
+  tags?: string;
+  // Fallback notes
+  notes?: string;
   [key: string]: string | undefined;
 }

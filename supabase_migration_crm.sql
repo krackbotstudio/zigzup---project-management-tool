@@ -1,6 +1,6 @@
 -- ============================================================
 -- ZigZup CRM Module — Supabase Migration
--- Run this in the Supabase SQL Editor
+-- Run this in the Supabase SQL Editor (safe to re-run)
 -- ============================================================
 
 -- 1. Add board_type to boards table
@@ -59,12 +59,12 @@ CREATE INDEX IF NOT EXISTS idx_crm_activities_lead ON crm_activities(lead_id);
 CREATE INDEX IF NOT EXISTS idx_crm_activities_workspace ON crm_activities(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_boards_type ON boards(board_type);
 
--- 6. RLS Policies (enable RLS on new tables)
+-- 6. RLS (enable + drop-then-recreate policies so this script is idempotent)
 ALTER TABLE crm_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crm_leads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crm_activities ENABLE ROW LEVEL SECURITY;
 
--- Allow users to access CRM data for workspaces they belong to
+DROP POLICY IF EXISTS "crm_contacts_workspace_member" ON crm_contacts;
 CREATE POLICY "crm_contacts_workspace_member" ON crm_contacts
   FOR ALL USING (
     workspace_id IN (
@@ -72,6 +72,7 @@ CREATE POLICY "crm_contacts_workspace_member" ON crm_contacts
     )
   );
 
+DROP POLICY IF EXISTS "crm_leads_workspace_member" ON crm_leads;
 CREATE POLICY "crm_leads_workspace_member" ON crm_leads
   FOR ALL USING (
     workspace_id IN (
@@ -79,9 +80,13 @@ CREATE POLICY "crm_leads_workspace_member" ON crm_leads
     )
   );
 
+DROP POLICY IF EXISTS "crm_activities_workspace_member" ON crm_activities;
 CREATE POLICY "crm_activities_workspace_member" ON crm_activities
   FOR ALL USING (
     workspace_id IN (
       SELECT workspace_id FROM members WHERE user_id = auth.uid()
     )
   );
+
+-- 7. Reload PostgREST schema cache so new tables are visible immediately
+NOTIFY pgrst, 'reload schema';

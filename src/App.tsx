@@ -25,6 +25,7 @@ import InvitePage from "@/pages/InvitePage";
 import CRMDashboard from "@/pages/CRMDashboard";
 import CRMContacts from "@/pages/CRMContacts";
 import CRMLeadDetail from "@/pages/CRMLeadDetail";
+import MeetRoom from "@/pages/MeetRoom";
 
 import { ProjectProvider } from "./context/ProjectContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -76,6 +77,7 @@ const App = () => (
                   <Route path="/contact" element={<Contact />} />
                   <Route path="/donate" element={<Donate />} />
                   <Route path="/invite" element={<InvitePage />} />
+                  <Route path="/meet/:roomId" element={<MeetRoom />} />
 
                   {/* Protected Routes */}
                   <Route element={
