@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
   PointerSensor, useDroppable, useSensor, useSensors,
 } from '@dnd-kit/core';
-import { Plus, Users, GitBranch, Loader2, AlertTriangle, Upload } from 'lucide-react';
+import {
+  Plus, Users, GitBranch, Loader2, AlertTriangle, Upload,
+  Search, X, SlidersHorizontal, MapPin,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { useCRM } from '@/context/CRMContext';
@@ -18,6 +22,13 @@ import { CRMTableView } from '@/components/crm/CRMTableView';
 import { CRMListView } from '@/components/crm/CRMListView';
 import { ImportLeadsModal } from '@/components/crm/ImportLeadsModal';
 import { cn } from '@/lib/utils';
+
+// ── Location helpers ───────────────────────────────────────
+function extractAddressParts(notes?: string): string[] {
+  const m = notes?.match(/^Address:\s*(.+)$/m);
+  if (!m) return [];
+  return m[1].split(',').map(p => p.trim()).filter(p => p.length > 2 && !/^\d+$/.test(p));
+}
 
 // ── Droppable column (Kanban) ─────────────────────────────
 function PipelineColumn({
@@ -91,10 +102,44 @@ function PipelineColumn({
   );
 }
 
+// ── Compact filter select ──────────────────────────────────
+function FilterSelect({
+  value, onChange, options, placeholder, icon,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div className="relative flex items-center">
+      {icon && <span className="absolute left-2.5 text-muted-foreground pointer-events-none">{icon}</span>}
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className={cn(
+          'h-8 rounded-lg border border-input bg-background text-xs pr-7 appearance-none cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-ring',
+          icon ? 'pl-7' : 'pl-3',
+          value ? 'border-primary/50 text-foreground font-medium' : 'text-muted-foreground',
+        )}
+      >
+        <option value="">{placeholder}</option>
+        {options.map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <span className="absolute right-2 text-muted-foreground pointer-events-none">
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      </span>
+    </div>
+  );
+}
+
 // ── Main Dashboard ────────────────────────────────────────
 export default function CRMDashboard() {
   const {
-    leadsWithCards, crmBoardId, crmLists, initCRMBoard,
+    leadsWithCards, contacts, crmBoardId, crmLists, initCRMBoard,
     moveLeadToStage, migrationNeeded, crmLoading,
   } = useCRM();
   const { activeWorkspaceId } = useProject();
@@ -105,6 +150,70 @@ export default function CRMDashboard() {
   const [leadModal, setLeadModal]   = useState<{ open: boolean; listId?: string }>({ open: false });
   const [importOpen, setImportOpen] = useState(false);
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // ── Filter state ─────────────────────────────────────────
+  const [search, setSearch]               = useState('');
+  const [filterStage, setFilterStage]     = useState('');
+  const [filterLocation, setFilterLocation] = useState('');
+  const [filterSource, setFilterSource]   = useState('');
+  const [filterPriority, setFilterPriority] = useState('');
+
+  const activeFilterCount = [filterStage, filterLocation, filterSource, filterPriority].filter(Boolean).length;
+
+  const clearFilters = () => {
+    setSearch(''); setFilterStage(''); setFilterLocation('');
+    setFilterSource(''); setFilterPriority('');
+  };
+
+  // ── Unique location options from all contacts ─────────────
+  const locationOptions = useMemo(() => {
+    const parts = new Set<string>();
+    contacts.forEach(c => extractAddressParts(c.notes).forEach(p => parts.add(p)));
+    // Also check contact notes from leadsWithCards
+    leadsWithCards.forEach(l => extractAddressParts(l.contact?.notes).forEach(p => parts.add(p)));
+    return [...parts].sort().map(p => ({ value: p, label: p }));
+  }, [contacts, leadsWithCards]);
+
+  // ── Unique source options ─────────────────────────────────
+  const sourceOptions = useMemo(() => {
+    const src = new Set(leadsWithCards.map(l => l.source).filter(Boolean) as string[]);
+    return [...src].sort().map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, ' ') }));
+  }, [leadsWithCards]);
+
+  const stageOptions = crmLists.map(l => ({ value: l.id, label: l.name }));
+  const priorityOptions = [
+    { value: 'critical', label: 'Critical' },
+    { value: 'high', label: 'High' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'low', label: 'Low' },
+  ];
+
+  // ── Apply filters ────────────────────────────────────────
+  const filteredLeads = useMemo(() => {
+    return leadsWithCards.filter(l => {
+      if (search) {
+        const q = search.toLowerCase();
+        const fields = [
+          l.card.title,
+          l.contact?.name,
+          l.contact?.email,
+          l.contact?.company,
+          l.contact?.phone,
+        ].map(f => f?.toLowerCase() ?? '');
+        if (!fields.some(f => f.includes(q))) return false;
+      }
+      if (filterStage && l.card.listId !== filterStage) return false;
+      if (filterSource && l.source !== filterSource) return false;
+      if (filterPriority && l.card.priority !== filterPriority) return false;
+      if (filterLocation) {
+        const addr = l.contact?.notes ?? '';
+        const addrMatch = addr.match(/^Address:\s*(.+)$/m);
+        if (!addrMatch || !addrMatch[1].toLowerCase().includes(filterLocation.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [leadsWithCards, search, filterStage, filterSource, filterPriority, filterLocation]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -122,7 +231,6 @@ export default function CRMDashboard() {
     }
   };
 
-  // Auto-init: wait until CRM load settles AND workspace is confirmed
   useEffect(() => {
     if (!crmLoading && activeWorkspaceId && !crmBoardId && !initialising && !migrationNeeded) {
       runInit();
@@ -164,7 +272,6 @@ export default function CRMDashboard() {
     );
   }
 
-  // ── Loading ──────────────────────────────────────────────
   if (crmLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -176,7 +283,6 @@ export default function CRMDashboard() {
     );
   }
 
-  // ── Initialising ─────────────────────────────────────────
   if (initialising) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -188,7 +294,6 @@ export default function CRMDashboard() {
     );
   }
 
-  // ── Empty / setup state ───────────────────────────────────
   if (!crmBoardId) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -212,42 +317,120 @@ export default function CRMDashboard() {
   }
 
   // ── Main view ────────────────────────────────────────────
+  const isFiltered = !!(search || filterStage || filterLocation || filterSource || filterPriority);
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* ── Header ───────────────────────────────────────── */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border/40 bg-background/60 backdrop-blur-sm shrink-0">
         <div className="flex items-center gap-3">
           <GitBranch className="w-4 h-4 text-primary" />
           <span className="text-sm font-semibold">Sales Pipeline</span>
           <span className="text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
-            {leadsWithCards.length} leads
+            {isFiltered ? `${filteredLeads.length} / ${leadsWithCards.length}` : `${leadsWithCards.length}`} leads
           </span>
           <ViewSwitcher view={viewMode} onChange={setViewMode} />
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
-            onClick={() => setImportOpen(true)}
+          {/* Filter toggle */}
+          <button
+            onClick={() => setShowFilters(v => !v)}
+            className={cn(
+              'flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs font-medium transition-colors',
+              showFilters || activeFilterCount > 0
+                ? 'border-primary/50 bg-primary/10 text-primary'
+                : 'border-input text-muted-foreground hover:text-foreground hover:border-border',
+            )}
           >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="bg-primary text-primary-foreground text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setImportOpen(true)}>
             <Upload className="w-3.5 h-3.5" /> Import
           </Button>
-          <Button
-            size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
-            asChild
-          >
-            <Link to="/crm/contacts">
-              <Users className="w-3.5 h-3.5" /> Contacts
-            </Link>
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" asChild>
+            <Link to="/crm/contacts"><Users className="w-3.5 h-3.5" /> Contacts</Link>
           </Button>
-          <Button
-            size="sm" className="h-8 gap-1.5 text-xs"
-            onClick={() => setLeadModal({ open: true })}
-          >
+          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setLeadModal({ open: true })}>
             <Plus className="w-3.5 h-3.5" /> Add Lead
           </Button>
         </div>
       </div>
+
+      {/* ── Filter bar ───────────────────────────────────── */}
+      {showFilters && (
+        <div className="flex items-center gap-2 px-6 py-2.5 border-b border-border/40 bg-muted/20 shrink-0 flex-wrap">
+          {/* Search */}
+          <div className="relative flex items-center">
+            <Search className="absolute left-2.5 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search leads…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="h-8 pl-8 w-44 text-xs bg-background"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 text-muted-foreground hover:text-foreground">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Stage */}
+          <FilterSelect
+            value={filterStage}
+            onChange={setFilterStage}
+            options={stageOptions}
+            placeholder="All Stages"
+          />
+
+          {/* Location */}
+          {locationOptions.length > 0 && (
+            <FilterSelect
+              value={filterLocation}
+              onChange={setFilterLocation}
+              options={locationOptions}
+              placeholder="All Locations"
+              icon={<MapPin className="w-3 h-3" />}
+            />
+          )}
+
+          {/* Source */}
+          {sourceOptions.length > 0 && (
+            <FilterSelect
+              value={filterSource}
+              onChange={setFilterSource}
+              options={sourceOptions}
+              placeholder="All Sources"
+            />
+          )}
+
+          {/* Priority */}
+          <FilterSelect
+            value={filterPriority}
+            onChange={setFilterPriority}
+            options={priorityOptions}
+            placeholder="All Priorities"
+          />
+
+          {/* Clear */}
+          {(search || activeFilterCount > 0) && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1 h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border rounded-lg transition-colors"
+            >
+              <X className="w-3 h-3" /> Clear all
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Stats bar */}
       <div className="shrink-0">
@@ -255,43 +438,37 @@ export default function CRMDashboard() {
       </div>
 
       {/* View content */}
-      <div className="flex-1 overflow-auto">
-        {/* Table view */}
-        {viewMode === 'table' && <CRMTableView />}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {viewMode === 'table' && <CRMTableView leads={filteredLeads} />}
 
-        {/* List view */}
-        {viewMode === 'list' && (
-          <div className="p-0">
-            <CRMListView />
-          </div>
-        )}
+        {viewMode === 'list' && <CRMListView leads={filteredLeads} />}
 
-        {/* Kanban view */}
         {viewMode === 'kanban' && (
-          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <div className="flex gap-3 p-6 items-start">
-              {crmLists.map(list => (
-                <PipelineColumn
-                  key={list.id}
-                  list={list}
-                  leads={leadsWithCards.filter(l => l.card.listId === list.id)}
-                  onAddLead={listId => setLeadModal({ open: true, listId })}
-                />
-              ))}
-            </div>
+          <div className="h-full overflow-auto">
+            <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+              <div className="flex gap-3 p-6 items-start min-w-max">
+                {crmLists.map(list => (
+                  <PipelineColumn
+                    key={list.id}
+                    list={list}
+                    leads={filteredLeads.filter(l => l.card.listId === list.id)}
+                    onAddLead={listId => setLeadModal({ open: true, listId })}
+                  />
+                ))}
+              </div>
 
-            <DragOverlay>
-              {draggedLead && (
-                <div className="rotate-2 opacity-90 w-[270px]">
-                  <LeadCard lead={draggedLead} />
-                </div>
-              )}
-            </DragOverlay>
-          </DndContext>
+              <DragOverlay>
+                {draggedLead && (
+                  <div className="rotate-2 opacity-90 w-[270px]">
+                    <LeadCard lead={draggedLead} />
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          </div>
         )}
       </div>
 
-      {/* Modals */}
       <LeadFormModal
         open={leadModal.open}
         onClose={() => setLeadModal({ open: false })}

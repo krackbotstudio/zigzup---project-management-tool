@@ -1,6 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowUpDown, ArrowUp, ArrowDown, ExternalLink, Trash2, Plus } from 'lucide-react';
+import {
+  ArrowUpDown, ArrowUp, ArrowDown, ExternalLink, Trash2, Plus,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
+} from 'lucide-react';
 import { useCRM } from '@/context/CRMContext';
 import { useProject } from '@/context/ProjectContext';
 import { CRMLeadWithCard, CRMLeadSource, Priority, KanbanList } from '@/types';
@@ -133,6 +136,17 @@ function ColHeader({ label, field, sort, onSort }: {
   );
 }
 
+// ── Indeterminate checkbox ────────────────────────────────
+function IndeterminateCheckbox({ checked, indeterminate, onChange }: {
+  checked: boolean; indeterminate: boolean; onChange: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} className="rounded" />;
+}
+
 // ── Pure function: render cell content for a given column id ──
 function renderCellContent(
   colId: string,
@@ -250,19 +264,98 @@ function renderCellContent(
   }
 }
 
+// ── Pagination controls ───────────────────────────────────
+function Pagination({ page, totalPages, total, pageSize, onPage }: {
+  page: number; totalPages: number; total: number; pageSize: number; onPage: (p: number) => void;
+}) {
+  const start = (page - 1) * pageSize + 1;
+  const end   = Math.min(page * pageSize, total);
+
+  // Build visible page numbers (up to 5 around current)
+  const pages: number[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    const left  = Math.max(1, page - 2);
+    const right = Math.min(totalPages, page + 2);
+    if (left > 1) pages.push(1);
+    if (left > 2) pages.push(-1); // ellipsis
+    for (let i = left; i <= right; i++) pages.push(i);
+    if (right < totalPages - 1) pages.push(-2); // ellipsis
+    if (right < totalPages) pages.push(totalPages);
+  }
+
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/40 bg-background shrink-0">
+      <span className="text-xs text-muted-foreground">
+        {start}–{end} of {total} leads
+      </span>
+      <div className="flex items-center gap-0.5">
+        <button
+          onClick={() => onPage(1)} disabled={page === 1}
+          className="p-1.5 rounded hover:bg-muted disabled:opacity-30 transition-colors"
+          title="First page"
+        >
+          <ChevronsLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => onPage(page - 1)} disabled={page === 1}
+          className="p-1.5 rounded hover:bg-muted disabled:opacity-30 transition-colors"
+          title="Previous page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        {pages.map((p, i) =>
+          p < 0 ? (
+            <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onPage(p)}
+              className={cn(
+                'min-w-[28px] h-7 px-1.5 rounded text-xs font-medium transition-colors',
+                p === page ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-muted-foreground',
+              )}
+            >
+              {p}
+            </button>
+          )
+        )}
+        <button
+          onClick={() => onPage(page + 1)} disabled={page === totalPages}
+          className="p-1.5 rounded hover:bg-muted disabled:opacity-30 transition-colors"
+          title="Next page"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => onPage(totalPages)} disabled={page === totalPages}
+          className="p-1.5 rounded hover:bg-muted disabled:opacity-30 transition-colors"
+          title="Last page"
+        >
+          <ChevronsRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────
-export function CRMTableView() {
+export function CRMTableView({ leads: leadsProp }: { leads?: CRMLeadWithCard[] }) {
   const { leadsWithCards, crmLists, updateCard, updateContact, updateLead, moveLeadToStage, deleteLead } = useCRM();
   const { members } = useProject();
 
-  const [columns, setColumns]   = useState<ColumnDef[]>(loadColumns);
-  const [editing, setEditing]   = useState<EditKey | null>(null);
-  const [sort, setSort]         = useState<{ field: string; dir: SortDir } | null>({ field: 'created', dir: 'desc' });
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [addOpen, setAddOpen]   = useState(false);
+  const [columns, setColumns]     = useState<ColumnDef[]>(loadColumns);
+  const [editing, setEditing]     = useState<EditKey | null>(null);
+  const [sort, setSort]           = useState<{ field: string; dir: SortDir } | null>({ field: 'created', dir: 'desc' });
+  const [selected, setSelected]   = useState<Set<string>>(new Set());
+  const [addOpen, setAddOpen]     = useState(false);
+  const [page, setPage]           = useState(1);
+  const [pageSize, setPageSize]   = useState(25);
+  const [bulkStage, setBulkStage] = useState('');
+  const [deleting, setDeleting]   = useState(false);
 
   const visibleCols = columns.filter(c => c.visible);
-
   const handleColumnsChange = (cols: ColumnDef[]) => { setColumns(cols); saveColumns(cols); };
   const startEdit  = (leadId: string, field: string) => setEditing({ leadId, field });
   const cancelEdit = () => setEditing(null);
@@ -270,6 +363,58 @@ export function CRMTableView() {
     setSort(prev => prev?.field === field
       ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
       : { field, dir: 'asc' });
+
+  const baseLeads  = leadsProp ?? leadsWithCards;
+  const sorted     = sort ? sortLeads(baseLeads, sort.field, sort.dir) : baseLeads;
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const paged      = sorted.slice((page - 1) * pageSize, page * pageSize);
+
+  // Reset page when lead list or page size changes
+  useEffect(() => { setPage(1); }, [baseLeads.length, pageSize]);
+  // Clamp page if total pages shrinks
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [totalPages]);
+
+  // Checkbox header state
+  const allPageSelected  = paged.length > 0 && paged.every(l => selected.has(l.id));
+  const somePageSelected = paged.some(l => selected.has(l.id));
+  const allSelected      = selected.size === sorted.length && sorted.length > 0;
+
+  const togglePageSelect = () => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allPageSelected) paged.forEach(l => next.delete(l.id));
+      else paged.forEach(l => next.add(l.id));
+      return next;
+    });
+  };
+
+  const selectAll      = () => setSelected(new Set(sorted.map(l => l.id)));
+  const clearSelection = () => setSelected(new Set());
+
+  // Bulk: move to stage
+  const handleBulkMoveStage = async () => {
+    if (!bulkStage || selected.size === 0) return;
+    const promises = [...selected].flatMap(leadId => {
+      const lead = sorted.find(l => l.id === leadId);
+      if (lead && lead.card.listId !== bulkStage) {
+        return [moveLeadToStage(lead.cardId, bulkStage, lead.id)];
+      }
+      return [];
+    });
+    await Promise.all(promises);
+    setBulkStage('');
+    clearSelection();
+  };
+
+  // Bulk: delete selected
+  const handleDeleteSelected = async () => {
+    if (!confirm(`Delete ${selected.size} lead${selected.size > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setDeleting(true);
+    await Promise.all([...selected].map(id => deleteLead(id)));
+    setDeleting(false);
+    clearSelection();
+  };
+
 
   const saveField = useCallback<SaveFn>(async (lead, field, value) => {
     setEditing(null);
@@ -310,17 +455,15 @@ export function CRMTableView() {
     } catch { /* silently ignore */ }
   }, [updateCard, updateContact, updateLead, moveLeadToStage, crmLists]);
 
-  const sorted = sort ? sortLeads(leadsWithCards, sort.field, sort.dir) : leadsWithCards;
-  const toggleAll = () =>
-    setSelected(selected.size === sorted.length ? new Set() : new Set(sorted.map(l => l.id)));
-
-  if (leadsWithCards.length === 0) {
+  if (sorted.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[200px] gap-3">
-        <p className="text-sm text-muted-foreground">No leads yet.</p>
-        <button onClick={() => setAddOpen(true)} className="flex items-center gap-1.5 text-xs text-primary hover:underline">
-          <Plus className="w-3.5 h-3.5" /> Add your first lead
-        </button>
+        <p className="text-sm text-muted-foreground">{leadsProp ? 'No leads match the current filters.' : 'No leads yet.'}</p>
+        {!leadsProp && (
+          <button onClick={() => setAddOpen(true)} className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+            <Plus className="w-3.5 h-3.5" /> Add your first lead
+          </button>
+        )}
         <LeadFormModal open={addOpen} onClose={() => setAddOpen(false)} />
       </div>
     );
@@ -328,22 +471,42 @@ export function CRMTableView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
+      {/* ── Toolbar ─────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 bg-muted/10 shrink-0">
-        <span className="text-xs text-muted-foreground">
-          {sorted.length} lead{sorted.length !== 1 ? 's' : ''}
-          {selected.size > 0 && ` · ${selected.size} selected`}
-        </span>
-        <ColumnCustomizer columns={columns} onChange={handleColumnsChange} />
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">
+            {sorted.length} lead{sorted.length !== 1 ? 's' : ''}
+            {selected.size > 0 && (
+              <span className="text-primary font-medium"> · {selected.size} selected</span>
+            )}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Page size selector */}
+          <select
+            value={pageSize}
+            onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+            className="h-7 text-xs border border-input rounded px-1.5 bg-background text-muted-foreground cursor-pointer"
+          >
+            <option value={25}>25 / page</option>
+            <option value={50}>50 / page</option>
+            <option value={100}>100 / page</option>
+          </select>
+          <ColumnCustomizer columns={columns} onChange={handleColumnsChange} />
+        </div>
       </div>
 
-      {/* Table */}
+      {/* ── Table ───────────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-background border-b border-border">
             <tr>
               <th className="w-8 px-3 py-2.5">
-                <input type="checkbox" checked={selected.size === sorted.length && sorted.length > 0} onChange={toggleAll} className="rounded" />
+                <IndeterminateCheckbox
+                  checked={allPageSelected}
+                  indeterminate={somePageSelected && !allPageSelected}
+                  onChange={togglePageSelect}
+                />
               </th>
               {visibleCols.map(col => (
                 <ColHeader key={col.id} label={col.label} field={col.id} sort={sort} onSort={handleSort} />
@@ -353,17 +516,51 @@ export function CRMTableView() {
           </thead>
 
           <tbody className="divide-y divide-border/30">
-            {sorted.map(lead => (
-              <tr key={lead.id} className={cn('group hover:bg-muted/20 transition-colors', selected.has(lead.id) && 'bg-primary/5')}>
+            {/* Select-all banner */}
+            {allPageSelected && sorted.length > pageSize && !allSelected && (
+              <tr>
+                <td colSpan={visibleCols.length + 2} className="px-4 py-2 bg-primary/5 text-center">
+                  <span className="text-xs text-muted-foreground">
+                    {paged.length} leads on this page selected.{' '}
+                    <button onClick={selectAll} className="text-primary hover:underline font-semibold">
+                      Select all {sorted.length} leads
+                    </button>
+                  </span>
+                </td>
+              </tr>
+            )}
+            {allSelected && sorted.length > pageSize && (
+              <tr>
+                <td colSpan={visibleCols.length + 2} className="px-4 py-2 bg-primary/5 text-center">
+                  <span className="text-xs text-muted-foreground">
+                    All {sorted.length} leads selected.{' '}
+                    <button onClick={clearSelection} className="text-primary hover:underline font-semibold">
+                      Clear selection
+                    </button>
+                  </span>
+                </td>
+              </tr>
+            )}
+
+            {paged.map(lead => (
+              <tr
+                key={lead.id}
+                className={cn('group hover:bg-muted/20 transition-colors', selected.has(lead.id) && 'bg-primary/5')}
+              >
                 {/* Checkbox */}
                 <td className="px-3 py-2">
-                  <input type="checkbox" checked={selected.has(lead.id)} onChange={() => {
-                    setSelected(prev => {
-                      const next = new Set(prev);
-                      next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id);
-                      return next;
-                    });
-                  }} className="rounded" />
+                  <input
+                    type="checkbox"
+                    checked={selected.has(lead.id)}
+                    onChange={() => {
+                      setSelected(prev => {
+                        const next = new Set(prev);
+                        next.has(lead.id) ? next.delete(lead.id) : next.add(lead.id);
+                        return next;
+                      });
+                    }}
+                    className="rounded"
+                  />
                 </td>
 
                 {/* Dynamic columns */}
@@ -373,10 +570,13 @@ export function CRMTableView() {
                   </td>
                 ))}
 
-                {/* Actions */}
+                {/* Row actions */}
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Link to={`/crm/lead/${lead.id}`} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground">
+                    <Link
+                      to={`/crm/lead/${lead.id}`}
+                      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                    >
                       <ExternalLink className="w-3.5 h-3.5" />
                     </Link>
                     <button
@@ -393,31 +593,72 @@ export function CRMTableView() {
             {/* Quick-add row */}
             <tr>
               <td colSpan={visibleCols.length + 2} className="px-3 py-2">
-                <button onClick={() => setAddOpen(true)} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => setAddOpen(true)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
                   <Plus className="w-3.5 h-3.5" /> Add lead
                 </button>
               </td>
             </tr>
           </tbody>
         </table>
+
+        {/* ── Pagination — sticky inside scroll container ── */}
+        {totalPages > 1 && (
+          <div className="sticky bottom-0 z-10 bg-background border-t border-border/40">
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={sorted.length}
+              pageSize={pageSize}
+              onPage={setPage}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Selection bar */}
+      {/* ── Bulk action bar ──────────────────────────────── */}
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2 border-t border-border bg-muted/30 text-xs shrink-0">
-          <span className="text-muted-foreground">{selected.size} selected</span>
+        <div className="flex items-center gap-3 px-4 py-2.5 border-t border-primary/20 bg-primary/5 text-xs shrink-0 flex-wrap">
+          <span className="font-semibold text-foreground shrink-0">
+            {selected.size} lead{selected.size > 1 ? 's' : ''} selected
+          </span>
+
+          {/* Move to stage */}
+          <div className="flex items-center gap-1.5">
+            <select
+              value={bulkStage}
+              onChange={e => setBulkStage(e.target.value)}
+              className="h-7 text-xs border border-input rounded px-2 bg-background cursor-pointer"
+            >
+              <option value="">Move to stage…</option>
+              {crmLists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            {bulkStage && (
+              <button
+                onClick={handleBulkMoveStage}
+                disabled={deleting}
+                className="h-7 px-2.5 rounded bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                Apply
+              </button>
+            )}
+          </div>
+
+          <div className="w-px h-4 bg-border/60 shrink-0" />
+
           <button
-            onClick={() => {
-              if (confirm(`Delete ${selected.size} leads?`)) {
-                [...selected].forEach(id => deleteLead(id));
-                setSelected(new Set());
-              }
-            }}
-            className="text-destructive hover:underline"
+            onClick={handleDeleteSelected}
+            disabled={deleting}
+            className="text-destructive hover:underline font-medium disabled:opacity-50"
           >
             Delete selected
           </button>
-          <button onClick={() => setSelected(new Set())} className="text-muted-foreground hover:text-foreground ml-auto">Clear</button>
+
+          <button onClick={clearSelection} className="text-muted-foreground hover:text-foreground ml-auto">
+            Clear selection
+          </button>
         </div>
       )}
 
